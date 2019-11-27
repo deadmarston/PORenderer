@@ -1,0 +1,11 @@
+*~
+src/build
+src/bin
+src/objs
+.sconsign.dblite
+cyhair2pbrt
+obj2pbrt
+bsdftest
+imgtool
+pbrt
+pbrt_test

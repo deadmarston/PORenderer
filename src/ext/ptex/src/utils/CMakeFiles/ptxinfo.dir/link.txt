@@ -1,0 +1,1 @@
+/usr/bin/c++  -std=c++98 -Wall -Wextra -pedantic  -std=gnu++11 -Wno-conversion-null -O3 -DNDEBUG  -rdynamic CMakeFiles/ptxinfo.dir/ptxinfo.cpp.o  -o ptxinfo ../ptex/libPtex.a -lz -lpthread 

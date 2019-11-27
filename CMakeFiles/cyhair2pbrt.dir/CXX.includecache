@@ -1,0 +1,32 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/deadmarston/Workspace/pbrt-v3/src/tools/cyhair2pbrt.cpp
+cassert
+-
+cstdio
+-
+cstdlib
+-
+cstring
+-
+vector
+-
+iostream
+-
+cstdio
+-
+cstdlib
+-
+cstring
+-
+algorithm
+-
+vector
+-
+

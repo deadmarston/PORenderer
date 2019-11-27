@@ -1,0 +1,1 @@
+/usr/bin/c++   -std=gnu++11 -Wno-conversion-null -O3 -DNDEBUG  -rdynamic CMakeFiles/obj2pbrt.dir/src/tools/obj2pbrt.cpp.o  -o obj2pbrt 

@@ -1,0 +1,36 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/deadmarston/Workspace/pbrt-v3/src/ext/ptex/src/tests/ftest.cpp
+string
+-
+iostream
+-
+stdio.h
+-
+stdlib.h
+-
+Ptexture.h
+/home/deadmarston/Workspace/pbrt-v3/src/ext/ptex/src/tests/Ptexture.h
+
+src/ext/ptex/src/ptex/PtexInt.h
+stdint.h
+-
+stdint.h
+-
+
+src/ext/ptex/src/ptex/PtexVersion.h
+
+src/ext/ptex/src/ptex/Ptexture.h
+PtexInt.h
+src/ext/ptex/src/ptex/PtexInt.h
+ostream
+-
+PtexVersion.h
+src/ext/ptex/src/ptex/PtexVersion.h
+
