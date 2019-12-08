@@ -9,3 +9,10 @@ bsdftest
 imgtool
 pbrt
 pbrt_test
+CMakeFiles
+*/CMakeFiles
+*/*/CMakeFiles
+*/*/*/CMakeFiles
+*/*/*/*/CMakeFiles
+*/*/*/*/*/CMakeFiles
+*.png
