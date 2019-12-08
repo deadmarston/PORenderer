@@ -1,1 +1,0 @@
-/usr/bin/c++  -std=c++98 -Wall -Wextra -pedantic  -std=gnu++11 -Wno-conversion-null -O3 -DNDEBUG  -rdynamic CMakeFiles/wtest.dir/wtest.cpp.o  -o wtest ../ptex/libPtex.a -lpthread -lz 
