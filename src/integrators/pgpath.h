@@ -17,6 +17,10 @@
 
 namespace pbrt{
 
+//spatial binary tree
+
+//directional quad tree
+
 // Path Guiding Path Integrator Declarations
 class PathGuidingIntegrator : public SamplerIntegrator{
   public:
@@ -26,6 +30,7 @@ class PathGuidingIntegrator : public SamplerIntegrator{
   							  const std::string &lightSampleStrategy = "spatial",
   							  const Float quadThreshold = 0.01f, const Float c = 12000);
   		void Preprocess(const Scene &scene, Sampler &sampler);
+  		void Render(const Scene &scene);
   		Spectrum Li(const RayDifferential &ray, const Scene &scene, 
   					Sampler &sampler, MemoryArena &arena, int depth) const;
   private:
@@ -40,7 +45,7 @@ class PathGuidingIntegrator : public SamplerIntegrator{
   		const std::string lightSampleStrategy;
 
   		//light distribution created based on the light sample strategy
-  		std::unique_ptr<lightdistribution> lightDistribution;
+  		std::unique_ptr<LightDistribution>lightDistribution;
 
   		//private data for practical path guiding
   		//todo:
