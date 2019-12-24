@@ -34,9 +34,9 @@ public:
   DNode();
 private:
   bool isLeaf(){return m_nodes.size() == 0;}
-  Points2i dirToCanonical(Vector3f dir);//convert the dir vector to canonical 2d
-  Vector3f canonicalToDir(Points2i canonical);//convert the canonical into vector
-  uint16_t childIndex(vector dir);//get the child index
+  Point2i dirToCanonical(Vector3f dir);//convert the dir vector to canonical 2d
+  Vector3f canonicalToDir(Point2i canonical);//convert the canonical into vector
+  uint16_t childIndex(Vector3f dir);//get the child index
 
   std::array<float, 4> m_sum;//record the irradiance
   std::array<uint16_t, 4> m_nodes;//store the index of children
@@ -62,7 +62,7 @@ class PathGuidingIntegrator : public SamplerIntegrator{
   		void Preprocess(const Scene &scene, Sampler &sampler);
   		void Render(const Scene &scene);
   		Spectrum Li(const RayDifferential &ray, const Scene &scene, 
-  					Sampler &sampler, MemoryArena &arena, int depth) const;
+  					Sampler &sampler, MemoryArena &arena, int depth=0) const;
   private:
   		//private data for original path intergrator
   		const int maxDepth;//max depth to terminate the tracing

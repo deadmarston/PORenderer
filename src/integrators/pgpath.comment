@@ -1,0 +1,49 @@
+//SD-Tree
+//spatial tree
+//directional tree
+
+class SNode{
+private:
+	uint16_t axis;//change the axis alternatively
+public:
+	SNode();
+};
+
+class STree{
+private:
+public:
+	STree();
+	//sample
+	//pdf
+	//submit
+	//getDTree
+};
+
+class DNode{
+private:
+	std::array<uint16_t, 4> children;//an array saving the index of children in the DTree
+	std::array<float, 4> sum;//store the average of irradiance
+public:
+	DNode();
+	//method:
+	//isLeaf //judge whether it has children or not
+};
+
+//refine the DTree after one iteration
+class DTree{
+private:
+	std::vector<DNode> tree;
+	int max_depth;
+public:
+	DTree();
+	//method:
+	//sample input: output:
+	//submit input: direction, irradiance output: void
+	//refine 
+	//dirToCan vec3f to point2i
+	//canToDir point2i to vec3f
+	//childIndex  input: point2i output: index
+	//pdf input: direction output: pdf value
+};
+
+
