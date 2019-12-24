@@ -17,9 +17,39 @@
 
 namespace pbrt{
 
-//spatial binary tree
+//todo: single thread model for SDTree
 
+//spatial binary tree
+class SNode{
+private:
+
+};
+
+class STree{
+
+};
 //directional quad tree
+class DNode{
+public:
+  DNode();
+private:
+  bool isLeaf(){return m_nodes.size() == 0;}
+  Points2i dirToCanonical(Vector3f dir);//convert the dir vector to canonical 2d
+  Vector3f canonicalToDir(Points2i canonical);//convert the canonical into vector
+  uint16_t childIndex(vector dir);//get the child index
+
+  std::array<float, 4> m_sum;//record the irradiance
+  std::array<uint16_t, 4> m_nodes;//store the index of children
+};
+
+class DTree{
+public:
+  DTree();
+  int getMaxDepth();
+private:
+  std::vector<DNode> m_tree;
+  int maxDepth;
+};
 
 // Path Guiding Path Integrator Declarations
 class PathGuidingIntegrator : public SamplerIntegrator{

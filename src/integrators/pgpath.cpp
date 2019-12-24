@@ -15,6 +15,22 @@
 using namespace std;
 //12.7, implement the original path tracer
 namespace pbrt {
+	Points2i DNode::dirToCanonical(Vector3f dir){
+		Points2i can;
+		float cisTheta = max(min(d.z, 1), -1);
+		float phi = atan(dir.y, dir.x);
+		can.x = (dir.x+1)/2.f;
+		can.y = phi/(2*M_PI);
+		return can;
+	}
+
+	Vector3f DNode::canonicalToDir(Points2i can){
+		float cosTheta = can.x*2-1;
+		float sinTheta = sqrt(1 - cosTheta*cosTheta);
+		float phi = can.y*2*M_PI;
+		return Vector3f(sinTheta*cos(phi), sinTheta.sin(phi), cosTheta);
+	}
+
 	PathGuidingIntegrator::PathGuidingIntegrator(int maxDepth, std::shared_ptr<const Camera> camera, 
   							  std::shared_ptr<Sampler> sampler,
   							  const Bounds2i &pixelBounds, Float rrThreshold,
@@ -39,7 +55,110 @@ namespace pbrt {
   		//generate one SD-Tree for guiding, and one SD-Tree for storing the light field
   		//consider the parallel programming
 
-  		return;
+  		//first, we preprocess the scene
+  		this->preprocess(scene, *sampler);
+
+  		//compute nTiles, for parallel programming
+  		const int tileSize = 16;
+  		Bounds2i sampleBounds = camera->film->GetSampleBounds();
+  		Vector2i sampleExtent = sampleBounds.Diagonal();
+
+  		Points2i nTile((sampleExtent.x+tileSize-1)/tileSize, (sampleExtent.y+tileSize-1)/tileSize); 
+  		
+  		ProgressReporter reporter(nTiles.x * nTiles.y, "Rendering");
+    	{
+    		ParallelFor2D([&](Point2i tile) {//solve it parallelly
+
+    			//allocate memory arena for tile
+    			MemoryArena arena;
+
+    			//seed
+    			int seed = tile.y * nTile.x + tile.x;
+    			std::unique_ptr<Sampler> tileSampler = sampler->Clone(seed);
+
+    			//compute bounds
+    			int x0 = sampleBounds.pMin.x + tile.x * tileSize;
+    			int y0 = sampleBounds.pMin.y + tile.y * tileSize;
+    			int x1 = std::min(x0 + tileSize, sampleBounds.pMax.x);
+    			int y1 = std::min(y0 + tileSize, sampleBounds.pMax.y);
+    			Bounds2i tileBounds(Point2i(x0, y0), Point2i(x1, y1));
+	            LOG(INFO) << "Starting image tile " << tileBounds;
+
+	            // Get _FilmTile_ for tile
+	            std::unique_ptr<FilmTile> filmTile =
+	                camera->film->GetFilmTile(tileBounds);
+
+    			//lookover pixels to render
+    			for (Point2i pixel : tileBounds)
+    			{
+    				{
+	    				ProfilePhase pp(Prof::StartPixel);
+	                    tileSampler->StartPixel(pixel);
+                	}
+
+                	// Do this check after the StartPixel() call; this keeps
+	                // the usage of RNG values from (most) Samplers that use
+	                // RNGs consistent, which improves reproducability /
+	                // debugging.
+	                if (!InsideExclusive(pixel, pixelBounds))
+	                    continue;
+
+	                //rendering process
+	                do{
+	                	//camera sampler
+	                	CameraSample cameraSample = tileSampler->GetCameraSample(pixel);
+
+	                	RayDifferential ray;
+	                	Float rayWeight = camera->GenerateRayDifferential(cameraSample, &ray);
+	                	//todo: figure out why scale
+	                	ray.ScaleDifferentials(1 / std::sqrt((Float)tileSampler->samplesPerPixel));
+                    	++nCameraRays;
+
+                    	Spectrum L(0.f);
+                    	if (rayWeight > 0) L = Li(ray, scene, *tileSampler, arena);
+
+                    	if (L.HasNaNs()){
+                    		LOG(ERROR) << StringPrintf(
+	                            "Not-a-number radiance value returned "
+	                            "for pixel (%d, %d), sample %d. Setting to black.",
+	                            pixel.x, pixel.y,
+	                            (int)tileSampler->CurrentSampleNumber());
+                    		L = Spectrum(0.f);
+                    	}else if (L.y() < -1e-5){
+                    		LOG(ERROR) << StringPrintf(
+	                            "Negative luminance value, %f, returned "
+	                            "for pixel (%d, %d), sample %d. Setting to black.",
+	                            L.y(), pixel.x, pixel.y,
+	                            (int)tileSampler->CurrentSampleNumber());
+	                        L = Spectrum(0.f);
+                    	} else if (std::isinf(L.y())){
+                    		LOG(ERROR) << StringPrintf(
+	                            "Infinite luminance value returned "
+	                            "for pixel (%d, %d), sample %d. Setting to black.",
+	                            pixel.x, pixel.y,
+	                            (int)tileSampler->CurrentSampleNumber());
+	                        L = Spectrum(0.f);
+                    	}
+                    	VLOG(1) << "Camera sample: " << cameraSample << " -> ray: " <<
+                        	ray << " -> L = " << L;
+
+                        //add ray's contribution to image
+                        filmTile->AddSample(cameraSample.pFilm, L, rayWeight);
+
+                        arena.Reset();
+	                }while(tileSampler->StartNextSample())
+    			}
+    			LOG(INFO) << "Finished image tile " << tileBounds;
+
+				camera->file->MergeFilmTile(std::move(filmTile));
+				reporter.Update();    		
+    		}, nTiles);
+    		reporter.Done();
+    	}
+    	LOG(INFO) << "Rendering finished";
+
+	    // Save final image after rendering
+	    camera->film->WriteImage();
   	}
 
   	Spectrum PathGuidingIntegrator::Li(const RayDifferential &r, const Scene &scene, 
