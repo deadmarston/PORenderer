@@ -17,6 +17,9 @@
 
 namespace pbrt{
 
+//magic number
+enum RecordType{ nearest = 0, filter };
+
 //todo: single thread model for SDTree
 
 //spatial binary tree
@@ -38,14 +41,14 @@ public:
 
   //the range of index [0,0] - [1,1]
   //each 0.5*0.5 part is a subnode
-  uint16_t childIndex(Point2i& can) const;//get the child index
-  void record(Point2i& can, float irradiance, std::vector<DNode>& nodes);
+  uint16_t childIndex(Point2f& can) const;//get the child index
+  void record(Point2f& can, Float irradiance, std::vector<DNode>& nodes);
   void setSum(int index, Float val);
   Float sum(int index) const;
   void setChild(int index, uint16_t val);
   uint16_t child(int index) const;
-  Float pdf(Point2i& can, const std::vector<DNode>& nodes) const;
-  int depthAt(Point2i& can, const std::vector<DNode>& nodes) const;
+  Float pdf(Point2f& can, const std::vector<DNode>& nodes) const;
+  int depthAt(Point2f& can, const std::vector<DNode>& nodes) const;
   Point2f sample(Sampler* sampler, const std::vector<DNode>& nodes) const;
 private:
   std::array<std::atomic<Float>, 4> m_sum;//record the irradiance
@@ -56,15 +59,15 @@ class DTree{
 public:
   DTree();
   int getMaxDepth();
-  void sample();
-  void submit();
+  Vector3f sample(Sampler* sampler);
+  void record(const Vector3f& dir, Float irradiance, RecordType type);
   void refine();
-  float pdf(Vector3f dir);
+  Float pdf(const Vector3f& dir);
 
-  Point2i dirToCanonical(Vector3f dir);//convert the dir vector to canonical 2d
-  Vector3f canonicalToDir(Point2i canonical);//convert the canonical into vector
+  Point2f dirToCanonical(const Vector3f& dir);//convert the dir vector to canonical 2d
+  Vector3f canonicalToDir(const Point2f& canonical);//convert the canonical into vector
 private:
-  std::vector<DNode> m_tree;
+  std::vector<DNode> m_tree;//maintain a tree to store the index of node, the index of root is 0
   int maxDepth;
 };
 

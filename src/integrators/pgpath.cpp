@@ -39,15 +39,15 @@ namespace pbrt {
 		assert(!dnode.isLeaf(0));
 		assert(child.isLeaf(0));
 		cout << "dnode setchild pass" << endl;
-		assert(dnode.childIndex(Point2i(0.25, 0.25)) == 0);
-		assert(dnode.childIndex(Point2i(0.75, 0.75)) == 3);
-		assert(dnode.childIndex(Point2i(0.25, 0.75)) == 1);
-		assert(dnode.childIndex(Point2i(0.75, 0.25)) == 2);
-		assert(dnode.childIndex(Point2i(0.0, 0.0)) == 0);
-		assert(dnode.childIndex(Point2i(1.0, 1.0)) == 3);
-		assert(dnode.childIndex(Point2i(0.5, 0.5)) == 3);
-		assert(dnode.childIndex(Point2i(0.0, 0.5)) == 2);
-		assert(dnode.childIndex(Point2i(0.5, 0.0)) == 1);
+		assert(dnode.childIndex(Point2f(0.25, 0.25)) == 0);
+		assert(dnode.childIndex(Point2f(0.75, 0.75)) == 3);
+		assert(dnode.childIndex(Point2f(0.25, 0.75)) == 1);
+		assert(dnode.childIndex(Point2f(0.75, 0.25)) == 2);
+		assert(dnode.childIndex(Point2f(0.0, 0.0)) == 0);
+		assert(dnode.childIndex(Point2f(1.0, 1.0)) == 3);
+		assert(dnode.childIndex(Point2f(0.5, 0.5)) == 3);
+		assert(dnode.childIndex(Point2f(0.0, 0.5)) == 2);
+		assert(dnode.childIndex(Point2f(0.5, 0.0)) == 1);
 		cout << "dnode childindex pass" << endl;
 		dnode.setSum(1, 0.5);
 		assert(dnode.sum(1) == 0.5);
@@ -55,10 +55,10 @@ namespace pbrt {
 		assert(dnode.depthAt(0.8, 0.8) == 1);
 		assert(dnode.depthAt(0.2, 0.2) == 2);
 		cout << "dnode depthat pass" << endl;
-		Point2i p = Point2i(0.1, 0.1);
+		Point2f p = Point2f(0.1, 0.1);
 		dnode.record(p, 0.3, nodes);
 		assert(child.sum(0) == 0.3);
-		p = Point2i(0.4, 0.4);
+		p = Point2f(0.4, 0.4);
 		dnode.record(p, 0.5, nodes);
 		assert(child.sum(3) == 0.5);
 		cout << "dnode record pass" << endl;
@@ -105,7 +105,7 @@ namespace pbrt {
 		return m_nodes[index];
 	}
 
-	void DNode::record(Point2i& can, float irradiance, std::vector<DNode>& nodes){
+	void DNode::record(Point2f& can, Float irradiance, std::vector<DNode>& nodes){
 		int index = childIndex(can);
 		//didn't add to the sum of current node for efficiency
 		if (isLeaf(index)){
@@ -115,7 +115,7 @@ namespace pbrt {
 		}
 	}
 
-	int DNode::depthAt(Point2i& can, const std::vector<DNode>& nodes) const{
+	int DNode::depthAt(Point2f& can, const std::vector<DNode>& nodes) const{
 		int index = childIndex(can);
 
 		if (isLeaf(index)){
@@ -125,13 +125,12 @@ namespace pbrt {
 		}
 	}
 
-	Float DNode::pdf(Point2i& can, const std::vector<DNode>& nodes) const{
+	Float DNode::pdf(Point2f& can, const std::vector<DNode>& nodes) const{
 		int index = childIndex(can);
 
 		if (sum(index) <= 0){
 			return 0;
 		}
-
 		Float factor = 4*sum(index) / (sum(0)+sum(1)+sum(2)+sum(3));
 		if (isLeaf(index)){
 			return factor;
@@ -171,7 +170,7 @@ namespace pbrt {
 		}
 	}
 
-	uint16_t DNode::childIndex(Point2i& can) const{
+	uint16_t DNode::childIndex(Point2f& can) const{
 		/*
 		-------
 		|2 |3 |
@@ -192,8 +191,41 @@ namespace pbrt {
 		return index;
 	}
 
-	Point2i DTree::dirToCanonical(Vector3f dir){
-		Point2i can;
+	DTree::DTree(){
+		maxDepth = 1;
+		DNode root;
+		m_tree.push_back(root);
+	}
+
+	int DTree::getMaxDepth(){
+		return maxDepth;
+	}
+
+	Vector3f DTree::sample(Sampler* sampler){
+		Point2f can = m_tree[0].sample(sampler, m_tree);
+		return canonicalToDir(can);
+	}
+
+	void DTree::record(const Vector3f& dir, Float irradiance, RecordType type = nearest){
+		Point2f can = dirToCanonical(dir);
+
+		//todo: improvement for filter recording
+		if (type == nearest){
+			m_tree[0].record(can, irradiance, m_tree);
+		}
+	}
+
+	void DTree::refine(){
+
+	}
+
+	Float DTree::pdf(const Vector3f& dir){
+		Point2f can = dirToCanonical(dir);
+		return m_tree[0].pdf(can, m_tree);
+	}
+
+	Point2f DTree::dirToCanonical(const Vector3f& dir){
+		Point2f can;
 		float cosTheta = max(min(dir.z, 1.f), -1.f);
 		float phi = atan2(dir.y, dir.x);
 		can.x = (cosTheta+1)/2.f;
@@ -201,7 +233,7 @@ namespace pbrt {
 		return can;
 	}
 
-	Vector3f DTree::canonicalToDir(Point2i can){
+	Vector3f DTree::canonicalToDir(const Point2f& can){
 		float cosTheta = can.x*2-1;
 		float sinTheta = sqrt(1 - cosTheta*cosTheta);
 		float phi = can.y*2*M_PI;
