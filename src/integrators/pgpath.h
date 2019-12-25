@@ -33,6 +33,8 @@ class STree{
 };
 //directional quad tree
 #define LEAFINDEX 0//utilize a magic number NODEINDEX to define the index of leaf
+#define EPSILON 0.00001
+
 class DNode{
 public:
   DNode();
@@ -50,6 +52,9 @@ public:
   Float pdf(Point2f& can, const std::vector<DNode>& nodes) const;
   int depthAt(Point2f& can, const std::vector<DNode>& nodes) const;
   Point2f sample(Sampler* sampler, const std::vector<DNode>& nodes) const;
+  Float eval(std::vector<DNode>& nodes);
+
+  DNode& operator=(const DNode& node);
 private:
   std::array<std::atomic<Float>, 4> m_sum;//record the irradiance
   std::array<uint16_t, 4> m_nodes;//store the index of children

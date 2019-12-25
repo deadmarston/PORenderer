@@ -19,7 +19,28 @@ using namespace std;
 //12.23, add comments for mis with nee, preparing to finish it asap
 namespace pbrt {
 	STAT_COUNTER("Integrator/Camera rays traced", nCameraRays);
+
+	bool areSame(Float a, Float b){
+	  	return fabs(a-b) < EPSILON;
+	}
+
+	bool areFloatSame(Float a, Float b){
+		cout << a << " " << b << endl;
+		return areSame(a, b);
+	}
+
+	bool arePoint2Same(Point2f a, Point2f b){
+		cout << a << " " << b << endl;
+		return areSame(a.x, b.x) && areSame(a.y, b.y);
+	}
+
+	bool areVector3fSame(Vector3f a, Vector3f b){
+		cout << a << " " << b << endl;
+		return areSame(a.x, b.x) && areSame(a.y, b.y) && areSame(a.z, b.z);
+	}
+
 	void testDNode(){
+		cout << "===============test dnode===============" << endl;
 		std::vector<DNode> nodes;
 		DNode dnode;
 		nodes.push_back(dnode);
@@ -33,46 +54,117 @@ namespace pbrt {
 		assert(dnode.isLeaf(3));
 		cout << "dnode init pass" << endl;
 		//create a child
-		DNode child;
-		nodes.push_back(child);
+		DNode chi;
+		nodes.push_back(chi);
 		dnode.setChild(0, 1);
 		assert(!dnode.isLeaf(0));
-		assert(child.isLeaf(0));
+		assert(chi.isLeaf(0));
+		assert(dnode.child(0) == 1);
+		chi.setSum(0, 0.3);
 		cout << "dnode setchild pass" << endl;
-		assert(dnode.childIndex(Point2f(0.25, 0.25)) == 0);
-		assert(dnode.childIndex(Point2f(0.75, 0.75)) == 3);
-		assert(dnode.childIndex(Point2f(0.25, 0.75)) == 1);
-		assert(dnode.childIndex(Point2f(0.75, 0.25)) == 2);
-		assert(dnode.childIndex(Point2f(0.0, 0.0)) == 0);
-		assert(dnode.childIndex(Point2f(1.0, 1.0)) == 3);
-		assert(dnode.childIndex(Point2f(0.5, 0.5)) == 3);
-		assert(dnode.childIndex(Point2f(0.0, 0.5)) == 2);
-		assert(dnode.childIndex(Point2f(0.5, 0.0)) == 1);
+		Point2f p1 = Point2f(0.25, 0.25);
+		Point2f p2 = Point2f(0.75, 0.75);
+		Point2f p3 = Point2f(0.25, 0.75);
+		Point2f p4 = Point2f(0.75, 0.25);
+		Point2f p5 = Point2f(0.0, 0.0);
+		Point2f p6 = Point2f(1.0, 1.0);
+		Point2f p7 = Point2f(0.5, 0.5);
+		Point2f p8 = Point2f(0.0, 0.5);
+		Point2f p9 = Point2f(0.5, 0.0);
+		assert(dnode.childIndex(p1) == 0);
+		assert(dnode.childIndex(p2) == 3);
+		assert(dnode.childIndex(p3) == 2);
+		assert(dnode.childIndex(p4) == 1);
+		assert(dnode.childIndex(p5) == 0);
+		assert(dnode.childIndex(p6) == 3);
+		assert(dnode.childIndex(p7) == 0);
+		assert(dnode.childIndex(p8) == 0);
+		assert(dnode.childIndex(p9) == 0);
 		cout << "dnode childindex pass" << endl;
 		dnode.setSum(1, 0.5);
 		assert(dnode.sum(1) == 0.5);
 		cout << "dnode setsum pass" << endl;
-		assert(dnode.depthAt(0.8, 0.8) == 1);
-		assert(dnode.depthAt(0.2, 0.2) == 2);
+		p1 = Point2f(0.8, 0.8);
+		p2 = Point2f(0.2, 0.2);
+		assert(dnode.depthAt(p1, nodes) == 1);
+		assert(dnode.depthAt(p2, nodes) == 2);
 		cout << "dnode depthat pass" << endl;
 		Point2f p = Point2f(0.1, 0.1);
 		dnode.record(p, 0.3, nodes);
-		assert(child.sum(0) == 0.3);
+		assert(nodes[1].sum(0) == 0.3f);
 		p = Point2f(0.4, 0.4);
 		dnode.record(p, 0.5, nodes);
-		assert(child.sum(3) == 0.5);
+		assert(nodes[1].sum(3) == 0.5f);
 		cout << "dnode record pass" << endl;
+
+		dnode.setSum(0, 0.0);
+		dnode.setSum(1, 0.0);
+		dnode.setSum(2, 0.0);
+		dnode.setSum(3, 0.0);
+
+		nodes[1].setSum(0, 0.0);
+		nodes[1].setSum(1, 0.0);
+		nodes[1].setSum(2, 0.0);
+		nodes[1].setSum(3, 0.0);
+		p1 = Point2f(0.1, 0.1);
+		p2 = Point2f(0.3, 0.3);
+		p3 = Point2f(0.75, 0.75);
+		dnode.record(p1, 0.8, nodes);
+		dnode.record(p2, 0.3, nodes);
+		dnode.record(p3, 0.4, nodes);
+		Float sum = dnode.eval(nodes);
+		assert(sum == 1.5f);
+		assert(dnode.sum(0) == 1.1f);
+		cout << "dnode eval pass" << endl;
+		p1 = Point2f(0.1, 0.1);
+		p3 = Point2f(0.75, 0.75);
+		assert(areFloatSame(dnode.pdf(p1, nodes), 8.53333));
+		assert(areFloatSame(dnode.pdf(p3, nodes), 1.06667));
+		cout << "dnode pdf pass" << endl;
+		//todo:
+		//add testcase for sample function 
+		cout << "============test dnode finish============" << endl;
+	}
+
+	void testDTree(){
+		cout << "===============test dtree===============" << endl;
+		DTree tree;
+		assert(tree.getMaxDepth() == 1);
+		cout << "dtree maxdepth pass" << endl;
+		Vector3f v1 = Vector3f(0.0, 0.0, 0.0);
+		Vector3f v2 = Vector3f(1.0, 1.0, 1.0);
+		Vector3f v3 = Vector3f(-1.0, -1.0, -1.0);
+		Vector3f v4 = Vector3f(0.0, 0.0, 5.0);
+		Vector3f v5 = Vector3f(0.0, 0.0, -5.0);
+		assert(arePoint2Same(tree.dirToCanonical(v1), Point2f(0.5, 0.0)));
+		assert(arePoint2Same(tree.dirToCanonical(v2), Point2f(1.0, 0.125)));
+		assert(arePoint2Same(tree.dirToCanonical(v3), Point2f(0.0, 0.625)));
+		assert(arePoint2Same(tree.dirToCanonical(v4), Point2f(1.0, 0.0)));
+		assert(arePoint2Same(tree.dirToCanonical(v5), Point2f(0.0, 0.0)));
+		cout << "dtree dirToCanonical pass" << endl;
+		Point2f p1 = Point2f(0.0, 0.0);
+		Point2f p2 = Point2f(1.0, 1.0);
+		Point2f p3 = Point2f(0.5, 0.5);
+		assert(areVector3fSame(tree.canonicalToDir(p1), Vector3f(0.0, 0.0, -1.0)));
+		assert(areVector3fSame(tree.canonicalToDir(p2), Vector3f(0.0, 0.0, 1.0)));
+		assert(areVector3fSame(tree.canonicalToDir(p3), Vector3f(-1.0, 0.0, 0.0)));
+		cout << "dtree canonicalToDir pass" << endl;
+		//todo:
+		//add testcase for sample function
+		cout << "============test dtree finish============" << endl;
 	}
 
 	void testSDTree(){
 		cout << "===============test begin===============" << endl;
 		testDNode();
+		testDTree();
 		cout << "================test end================" << endl;
 	}
 
 	static void addToAtomicFloat(std::atomic<Float>& var, Float val){
 		auto current = var.load();
 		while(!var.compare_exchange_weak(current, current + val));
+		current = var.load();
 	}
 
 	DNode::DNode(){
@@ -82,11 +174,33 @@ namespace pbrt {
 		}
 	}
 
+	Float DNode::eval(std::vector<DNode>& nodes){
+		Float _sum = 0.f;
+		for (size_t i = 0; i < m_nodes.size(); i++){
+			if (isLeaf(i)){
+				_sum += sum(i);
+			}else{
+				Float current = nodes[child(i)].eval(nodes);
+				setSum(i, current);
+				_sum += current;
+			}
+		}
+		return _sum;
+	}
+
 	DNode::DNode(const DNode& node){
 		for (int i = 0; i < node.m_sum.size(); i++){
 			setSum(i, node.sum(i));
 			m_nodes[i] = node.child(i);
 		}
+	}
+
+	DNode& DNode::operator=(const DNode& node){
+		for (int i = 0; i < m_sum.size(); i++){
+			setSum(i, node.sum(i));
+			m_nodes[i] = node.child(i);
+		}
+		return *this;
 	}
 
 	void DNode::setSum(int index, Float val){
@@ -135,7 +249,7 @@ namespace pbrt {
 		if (isLeaf(index)){
 			return factor;
 		}else{
-			return factor*pdf(can, nodes);
+			return factor*nodes[child(index)].pdf(can, nodes);
 		}
 	}
 
@@ -228,12 +342,14 @@ namespace pbrt {
 		Point2f can;
 		float cosTheta = max(min(dir.z, 1.f), -1.f);
 		float phi = atan2(dir.y, dir.x);
+		while(phi < 0) phi += 2*M_PI;
 		can.x = (cosTheta+1)/2.f;
 		can.y = phi/(2*M_PI);
 		return can;
 	}
 
 	Vector3f DTree::canonicalToDir(const Point2f& can){
+		assert(can.x >= 0 && can.y >= 0 && 1 >= can.x &&  1>= can.y);
 		float cosTheta = can.x*2-1;
 		float sinTheta = sqrt(1 - cosTheta*cosTheta);
 		float phi = can.y*2*M_PI;
