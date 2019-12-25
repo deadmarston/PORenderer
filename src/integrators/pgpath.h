@@ -22,7 +22,7 @@ namespace pbrt{
 //spatial binary tree
 class SNode{
 private:
-
+  uint16_t axis;//change the axis alternative ly
 };
 
 class STree{
@@ -32,13 +32,21 @@ class STree{
 class DNode{
 public:
   DNode();
-private:
-  bool isLeaf(){return m_nodes.size() == 0;}
-  Point2i dirToCanonical(Vector3f dir);//convert the dir vector to canonical 2d
-  Vector3f canonicalToDir(Point2i canonical);//convert the canonical into vector
-  uint16_t childIndex(Vector3f dir);//get the child index
+  bool isLeaf(int index) const {return child(index) == 0;}
 
-  std::array<float, 4> m_sum;//record the irradiance
+  //the range of index [0,0] - [1,1]
+  //each 0.5*0.5 part is a subnode
+  uint16_t childIndex(Point2i& can) const;//get the child index
+  void record(Point2i& can, float irradiance, std::vector<DNode>& nodes);
+  void setSum(int index, Float val);
+  Float sum(int index) const;
+  void setChild(int index, uint16_t val);
+  uint16_t child(int index) const;
+  Float pdf(Point2i& can, const std::vector<DNode>& nodes) const;
+  int depthAt(Point2i& can, const std::vector<DNode>& nodes) const;
+  Point2f sample(Sampler* sampler, const std::vector<DNode>& nodes) const;
+private:
+  std::array<std::atomic<Float>, 4> m_sum;//record the irradiance
   std::array<uint16_t, 4> m_nodes;//store the index of children
 };
 
@@ -46,6 +54,13 @@ class DTree{
 public:
   DTree();
   int getMaxDepth();
+  void sample();
+  void submit();
+  void refine();
+  float pdf(Vector3f dir);
+
+  Point2i dirToCanonical(Vector3f dir);//convert the dir vector to canonical 2d
+  Vector3f canonicalToDir(Point2i canonical);//convert the canonical into vector
 private:
   std::vector<DNode> m_tree;
   int maxDepth;

@@ -13,13 +13,134 @@
 #include "stats.h"
 #include "progressreporter.h"
 #include <iostream>
+#include <vector>
 using namespace std;
 //12.7 , implement the original path tracer
 //12.23, add comments for mis with nee, preparing to finish it asap
 namespace pbrt {
 	STAT_COUNTER("Integrator/Camera rays traced", nCameraRays);
+	void testSDTree(){
+		std::array<int, 4> n;
+		cout << "===============test begin===============" << endl;
+		cout << n.size() << endl;
+		cout << "================test end================" << endl;
+	}
 
-	Point2i DNode::dirToCanonical(Vector3f dir){
+	static void addToAtomicFloat(std::atomic<Float>& var, Float val){
+		auto current = var.load();
+		while(!var.compare_exchange_weak(current, current + val));
+	}
+
+	DNode::DNode(){
+		m_nodes = {};
+		for (size_t i = 0; i < m_sum.size(); i++){
+			m_sum[i].store(0, std::memory_order_relaxed);
+		}
+	}
+
+	void DNode::setSum(int index, Float val){
+		m_sum[index].store(val, std::memory_order_relaxed);
+	}
+
+	Float DNode::sum(int index) const{
+		return m_sum[index].load(std::memory_order_relaxed);
+	}
+
+	void DNode::setChild(int index, uint16_t val){
+		m_nodes[index] = val;
+	}
+
+	uint16_t DNode::child(int index) const{
+		return m_nodes[index];
+	}
+
+	void DNode::record(Point2i& can, float irradiance, std::vector<DNode>& nodes){
+		int index = childIndex(can);
+		//didn't add to the sum of current node for efficiency
+		if (isLeaf(index)){
+			addToAtomicFloat(m_sum[index], irradiance);//make it atomic due to parallel programming
+		}else{
+			nodes[child(index)].record(can, irradiance, nodes);
+		}
+	}
+
+	int DNode::depthAt(Point2i& can, const std::vector<DNode>& nodes) const{
+		int index = childIndex(can);
+
+		if (isLeaf(index)){
+			return 1;
+		}else{
+			return 1 + nodes[child(index)].depthAt(can, nodes);
+		}
+	}
+
+	Float DNode::pdf(Point2i& can, const std::vector<DNode>& nodes) const{
+		int index = childIndex(can);
+
+		if (sum(index) <= 0){
+			return 0;
+		}
+
+		Float factor = 4*sum(index) / (sum(0)+sum(1)+sum(2)+sum(3));
+		if (isLeaf(index)){
+			return factor;
+		}else{
+			return factor*pdf(can, nodes);
+		}
+	}
+
+	Point2f DNode::sample(Sampler* sampler, const std::vector<DNode>& nodes) const{
+		Float bottomLeft = sum(0);
+		Float bottom = bottomLeft + sum(1);
+		Float bottom_upperLeft = bottom + sum(2);
+		Float total = bottom_upperLeft + sum(3);
+
+		Float sample = sampler->Get1D();
+		int index = 0;
+
+		Point2f origin;
+		if (sample > bottom/total){
+			if (sample > bottomLeft/total){
+				index = 1;
+				origin.x = 0.5;
+			}
+		}else{
+			if (sample > bottom_upperLeft/total){
+				index = 3;
+				origin.x = 0.5;
+			}else{
+				index = 2;
+			}
+			origin.y = 0.5;
+		}
+		if (isLeaf(index)){
+			return origin+0.5*sampler->Get2D();
+		}else{
+			return origin+0.5*nodes[child(index)].sample(sampler, nodes);
+		}
+	}
+
+	uint16_t DNode::childIndex(Point2i& can) const{
+		/*
+		-------
+		|2 |3 |
+		-------
+		|0 |1 |
+		-------
+		*/
+		uint16_t index = 0;
+		for (int i = 0;  i < 2; i++){
+			if (can[i] > 0.5){
+				can[i] = (can[i]-0.5)*2;
+				index |= (1 << i);
+			}else{
+				can[i] *= 2;
+			}
+		}
+		return index;
+	}
+
+	Point2i DTree::dirToCanonical(Vector3f dir){
 		Point2i can;
 		float cosTheta = max(min(dir.z, 1.f), -1.f);
 		float phi = atan2(dir.y, dir.x);
@@ -28,7 +149,7 @@ namespace pbrt {
 		return can;
 	}
 
-	Vector3f DNode::canonicalToDir(Point2i can){
+	Vector3f DTree::canonicalToDir(Point2i can){
 		float cosTheta = can.x*2-1;
 		float sinTheta = sqrt(1 - cosTheta*cosTheta);
 		float phi = can.y*2*M_PI;
@@ -194,6 +315,9 @@ namespace pbrt {
 
   	void PathGuidingIntegrator::Render(const Scene& scene)
   	{
+  		//unit test code here
+  		testSDTree();
+
   		//todo: divide the whole rendering process into several small rendering process
   		//generate one SD-Tree for guiding, and one SD-Tree for storing the light field
   		//consider the parallel programming
