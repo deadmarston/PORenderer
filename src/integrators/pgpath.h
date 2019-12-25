@@ -29,10 +29,12 @@ class STree{
 
 };
 //directional quad tree
+#define LEAFINDEX 0//utilize a magic number NODEINDEX to define the index of leaf
 class DNode{
 public:
   DNode();
-  bool isLeaf(int index) const {return child(index) == 0;}
+  DNode(const DNode& node);
+  bool isLeaf(int index) const {return child(index) == LEAFINDEX;}
 
   //the range of index [0,0] - [1,1]
   //each 0.5*0.5 part is a subnode

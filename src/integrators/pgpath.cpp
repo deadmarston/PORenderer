@@ -19,10 +19,54 @@ using namespace std;
 //12.23, add comments for mis with nee, preparing to finish it asap
 namespace pbrt {
 	STAT_COUNTER("Integrator/Camera rays traced", nCameraRays);
+	void testDNode(){
+		std::vector<DNode> nodes;
+		DNode dnode;
+		nodes.push_back(dnode);
+		assert(dnode.sum(0) == 0);
+		assert(dnode.sum(1) == 0);
+		assert(dnode.sum(2) == 0);
+		assert(dnode.sum(3) == 0);
+		assert(dnode.isLeaf(0));
+		assert(dnode.isLeaf(1));
+		assert(dnode.isLeaf(2));
+		assert(dnode.isLeaf(3));
+		cout << "dnode init pass" << endl;
+		//create a child
+		DNode child;
+		nodes.push_back(child);
+		dnode.setChild(0, 1);
+		assert(!dnode.isLeaf(0));
+		assert(child.isLeaf(0));
+		cout << "dnode setchild pass" << endl;
+		assert(dnode.childIndex(Point2i(0.25, 0.25)) == 0);
+		assert(dnode.childIndex(Point2i(0.75, 0.75)) == 3);
+		assert(dnode.childIndex(Point2i(0.25, 0.75)) == 1);
+		assert(dnode.childIndex(Point2i(0.75, 0.25)) == 2);
+		assert(dnode.childIndex(Point2i(0.0, 0.0)) == 0);
+		assert(dnode.childIndex(Point2i(1.0, 1.0)) == 3);
+		assert(dnode.childIndex(Point2i(0.5, 0.5)) == 3);
+		assert(dnode.childIndex(Point2i(0.0, 0.5)) == 2);
+		assert(dnode.childIndex(Point2i(0.5, 0.0)) == 1);
+		cout << "dnode childindex pass" << endl;
+		dnode.setSum(1, 0.5);
+		assert(dnode.sum(1) == 0.5);
+		cout << "dnode setsum pass" << endl;
+		assert(dnode.depthAt(0.8, 0.8) == 1);
+		assert(dnode.depthAt(0.2, 0.2) == 2);
+		cout << "dnode depthat pass" << endl;
+		Point2i p = Point2i(0.1, 0.1);
+		dnode.record(p, 0.3, nodes);
+		assert(child.sum(0) == 0.3);
+		p = Point2i(0.4, 0.4);
+		dnode.record(p, 0.5, nodes);
+		assert(child.sum(3) == 0.5);
+		cout << "dnode record pass" << endl;
+	}
+
 	void testSDTree(){
-		std::array<int, 4> n;
 		cout << "===============test begin===============" << endl;
-		cout << n.size() << endl;
+		testDNode();
 		cout << "================test end================" << endl;
 	}
 
@@ -32,9 +76,16 @@ namespace pbrt {
 	}
 
 	DNode::DNode(){
-		m_nodes = {};
 		for (size_t i = 0; i < m_sum.size(); i++){
 			m_sum[i].store(0, std::memory_order_relaxed);
+			m_nodes[i] = LEAFINDEX;
+		}
+	}
+
+	DNode::DNode(const DNode& node){
+		for (int i = 0; i < node.m_sum.size(); i++){
+			setSum(i, node.sum(i));
+			m_nodes[i] = node.child(i);
 		}
 	}
 
@@ -128,6 +179,7 @@ namespace pbrt {
 		|0 |1 |
 		-------
 		*/
+		assert(can.x >= 0 && can.y >= 0 && can.x <= 1 && can.y <= 1);
 		uint16_t index = 0;
 		for (int i = 0;  i < 2; i++){
 			if (can[i] > 0.5){
@@ -316,8 +368,8 @@ namespace pbrt {
   	void PathGuidingIntegrator::Render(const Scene& scene)
   	{
   		//unit test code here
-  		testSDTree();
-
+  		// testSDTree();
+  		// return;
   		//todo: divide the whole rendering process into several small rendering process
   		//generate one SD-Tree for guiding, and one SD-Tree for storing the light field
   		//consider the parallel programming
