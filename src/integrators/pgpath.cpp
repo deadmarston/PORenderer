@@ -112,10 +112,10 @@ namespace pbrt {
 		dnode.record(p1, 0.8, nodes);
 		dnode.record(p2, 0.3, nodes);
 		dnode.record(p3, 0.4, nodes);
-		Float sum = dnode.eval(nodes);
+		Float sum = dnode.build(nodes);
 		assert(sum == 1.5f);
 		assert(dnode.sum(0) == 1.1f);
-		cout << "dnode eval pass" << endl;
+		cout << "dnode build pass" << endl;
 		p1 = Point2f(0.1, 0.1);
 		p3 = Point2f(0.75, 0.75);
 		assert(areFloatSame(dnode.pdf(p1, nodes), 8.53333));
@@ -167,6 +167,48 @@ namespace pbrt {
 		current = var.load();
 	}
 
+	SNode::SNode(){
+		axis = 0;
+		for (size_t i = 0; i < m_nodes.size(); i++){
+			m_nodes[i] = LEAFINDEX;
+		}
+	}
+
+	SNode::SNode(const SNode& node){
+		axis = node.axis;
+		current = node.current;
+		previous = node.previous;
+		for (size_t i = 0; i < m_nodes.size(); i++){
+			m_nodes[i] = node.child(i);
+		}
+	}
+
+	SNode& SNode::operator=(const SNode& node){
+		axis = node.axis;
+		current = node.current;
+		previous = node.previous;
+		for (size_t i = 0; i < m_nodes.size(); i++){
+			m_nodes[i] = node.child(i);
+		}
+	}
+
+	uint32_t SNode::child(int index) const{
+		return m_nodes[index];
+	}
+
+	int SNode::childIndex(Vector3f& dir) const{
+		/*
+		left <---axis 0.5---> right
+		*/
+		if (dir[axis] > 0.5){
+			dir[axis] = (dir[axis]-0.5)*2;
+			return 1;
+		}else{
+			dir[axis] = dir[axis]*2;
+			return 0;
+		}
+	}
+
 	DNode::DNode(){
 		for (size_t i = 0; i < m_sum.size(); i++){
 			m_sum[i].store(0, std::memory_order_relaxed);
@@ -174,13 +216,13 @@ namespace pbrt {
 		}
 	}
 
-	Float DNode::eval(std::vector<DNode>& nodes){
+	Float DNode::build(std::vector<DNode>& nodes){
 		Float _sum = 0.f;
 		for (size_t i = 0; i < m_nodes.size(); i++){
 			if (isLeaf(i)){
 				_sum += sum(i);
 			}else{
-				Float current = nodes[child(i)].eval(nodes);
+				Float current = nodes[child(i)].build(nodes);
 				setSum(i, current);
 				_sum += current;
 			}
@@ -284,7 +326,7 @@ namespace pbrt {
 		}
 	}
 
-	uint16_t DNode::childIndex(Point2f& can) const{
+	int DNode::childIndex(Point2f& can) const{
 		/*
 		-------
 		|2 |3 |
@@ -293,7 +335,7 @@ namespace pbrt {
 		-------
 		*/
 		assert(can.x >= 0 && can.y >= 0 && can.x <= 1 && can.y <= 1);
-		uint16_t index = 0;
+		int index = 0;
 		for (int i = 0;  i < 2; i++){
 			if (can[i] > 0.5){
 				can[i] = (can[i]-0.5)*2;
@@ -313,6 +355,11 @@ namespace pbrt {
 
 	int DTree::getMaxDepth(){
 		return maxDepth;
+	}
+
+	int DTree::depthAt(const Vector3f& dir){
+		Point2f can = dirToCanonical(dir);
+		return m_tree[0].depthAt(can, m_tree);
 	}
 
 	Vector3f DTree::sample(Sampler* sampler){

@@ -1,5 +1,5 @@
 *~
-/build
+./build/*
 src/build
 src/bin
 src/objs

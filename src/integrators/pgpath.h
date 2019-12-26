@@ -20,30 +20,22 @@ namespace pbrt{
 //magic number
 enum RecordType{ nearest = 0, filter };
 
-//todo: single thread model for SDTree
-
-//spatial binary tree
-class SNode{
-private:
-  uint16_t axis;//change the axis alternative ly
-};
-
-class STree{
-
-};
 //directional quad tree
 #define LEAFINDEX 0//utilize a magic number NODEINDEX to define the index of leaf
 #define EPSILON 0.00001
+#define QUAD_MAX_DEPTH 20
+
+//todo: single thread model for SDTree
 
 class DNode{
 public:
   DNode();
   DNode(const DNode& node);
-  bool isLeaf(int index) const {return child(index) == LEAFINDEX;}
+  bool isLeaf(int index) const { return child(index) == LEAFINDEX; }
 
   //the range of index [0,0] - [1,1]
   //each 0.5*0.5 part is a subnode
-  uint16_t childIndex(Point2f& can) const;//get the child index
+  int childIndex(Point2f& can) const;//get the child index
   void record(Point2f& can, Float irradiance, std::vector<DNode>& nodes);
   void setSum(int index, Float val);
   Float sum(int index) const;
@@ -52,7 +44,7 @@ public:
   Float pdf(Point2f& can, const std::vector<DNode>& nodes) const;
   int depthAt(Point2f& can, const std::vector<DNode>& nodes) const;
   Point2f sample(Sampler* sampler, const std::vector<DNode>& nodes) const;
-  Float eval(std::vector<DNode>& nodes);
+  Float build(std::vector<DNode>& nodes);
 
   DNode& operator=(const DNode& node);
 private:
@@ -64,6 +56,7 @@ class DTree{
 public:
   DTree();
   int getMaxDepth();
+  int depthAt(const Vector3f& dir);
   Vector3f sample(Sampler* sampler);
   void record(const Vector3f& dir, Float irradiance, RecordType type);
   void refine();
@@ -74,6 +67,27 @@ public:
 private:
   std::vector<DNode> m_tree;//maintain a tree to store the index of node, the index of root is 0
   int maxDepth;
+};
+
+//spatial binary tree
+class SNode{
+public:
+  SNode();
+  SNode(const SNode& node);
+  SNode& operator=(const SNode& node);
+  bool isLeaf(int index) const { return child(index) == LEAFINDEX; };
+  uint32_t child(int index) const;
+  int childIndex(Vector3f& dir) const; 
+private:
+  uint16_t axis;//change the axis alternatively
+  DTree current;
+  DTree previous;
+  std::array<uint32_t, 2> m_nodes;
+};
+
+class STree{
+private:
+  std::vector<SNode> nodes;
 };
 
 // Path Guiding Path Integrator Declarations
