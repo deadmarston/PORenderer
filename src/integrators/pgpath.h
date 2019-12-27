@@ -75,9 +75,18 @@ public:
   SNode();
   SNode(const SNode& node);
   SNode& operator=(const SNode& node);
+
+  const SNode* acquire(Point3f& pos, std::vector<SNode> nodes) const;
+
   bool isLeaf(int index) const { return child(index) == LEAFINDEX; };
   uint32_t child(int index) const;
-  int childIndex(Vector3f& dir) const; 
+  int childIndex(Point3f& pos) const; 
+  int depthAt(Point3f& pos, std::vector<SNode>& nodes) const;
+
+  Vector3f sample(Sampler* sampler);
+  Float pdf(const Vector3f& dir);
+  void record(const Vector3f& dir, Spectrum& irradiance, RecordType type);
+  void refine();
 private:
   uint16_t axis;//change the axis alternatively
   DTree current;
@@ -86,8 +95,21 @@ private:
 };
 
 class STree{
+public:
+  STree(Bounds3f bounds);
+  int getMaxDepth() const;
+  int depthAt(Point3f& pos);
+  const Bounds3f& bounds() const{
+    return m_bounds;
+  }
+  const SNode* acquireDNode(Point3f& pos);
 private:
+  void normalize(Point3f& pos) const;
+
   std::vector<SNode> nodes;
+  int maxDepth;
+  Bounds3f m_bounds;
+  Float m_extent;
 };
 
 // Path Guiding Path Integrator Declarations

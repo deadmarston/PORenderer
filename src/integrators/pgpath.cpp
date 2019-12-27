@@ -167,6 +167,41 @@ namespace pbrt {
 		current = var.load();
 	}
 
+	STree::STree(Bounds3f bounds){
+		m_bounds = bounds;
+		Vector3f size = m_bounds.pMax - m_bounds.pMin;
+		m_extent = max(max(size.x, size.y), size.z);
+		m_bounds.pMax = m_bounds.pMin + Vector3f(m_extent, m_extent, m_extent);//todo: make it a cube, needs to figure out why
+		maxDepth = 0;
+		nodes.emplace_back();
+	}
+
+	int STree::getMaxDepth() const{
+		return maxDepth;
+	}
+
+	void STree::normalize(Point3f& pos) const{
+		Vector3f v = pos-m_bounds.pMin;
+		v.x /= m_extent;
+		v.y /= m_extent;
+		v.z /= m_extent;
+		pos.x = v.x;
+		pos.y = v.y;
+		pos.z = v.z;
+	}
+
+	int STree::depthAt(Point3f& pos){
+		Point3f _pos = pos;
+		normalize(pos);
+		return nodes[0].depthAt(_pos, nodes);
+	}
+
+	const SNode* STree::acquireDNode(Point3f& pos){
+		Point3f _pos = pos;
+		normalize(pos);
+		return nodes[0].acquire(pos, nodes);
+	}
+
 	SNode::SNode(){
 		axis = 0;
 		for (size_t i = 0; i < m_nodes.size(); i++){
@@ -192,21 +227,53 @@ namespace pbrt {
 		}
 	}
 
+	const SNode* SNode::acquire(Point3f& pos, std::vector<SNode> nodes) const{
+		int index = childIndex(pos);
+		if (isLeaf(index)){
+			return this;
+		}else{
+			return nodes[child(index)].acquire(pos, nodes);
+		}
+	}
+
 	uint32_t SNode::child(int index) const{
 		return m_nodes[index];
 	}
 
-	int SNode::childIndex(Vector3f& dir) const{
+	int SNode::childIndex(Point3f& pos) const{
 		/*
 		left <---axis 0.5---> right
 		*/
-		if (dir[axis] > 0.5){
-			dir[axis] = (dir[axis]-0.5)*2;
+		if (pos[axis] > 0.5){
+			pos[axis] = (pos[axis]-0.5)*2;
 			return 1;
 		}else{
-			dir[axis] = dir[axis]*2;
+			pos[axis] = pos[axis]*2;
 			return 0;
 		}
+	}
+
+	int SNode::depthAt(Point3f& pos, std::vector<SNode>& nodes) const{
+		int index = childIndex(pos);
+
+		if (isLeaf(index)){
+			return 1;
+		}else{
+			return 1 + nodes[child(index)].depthAt(pos, nodes);
+		}
+	}
+
+	Vector3f SNode::sample(Sampler* sampler){
+		return previous.sample(sampler);
+	}
+
+	Float SNode::pdf(const Vector3f& dir){
+		return previous.pdf(dir)/(4*M_PI);
+	}
+
+	void SNode::record(const Vector3f& dir, Spectrum& irradiance, RecordType type = nearest){
+		Float average = irradiance.Average();;
+		current.record(dir, average, type);
 	}
 
 	DNode::DNode(){
@@ -349,8 +416,7 @@ namespace pbrt {
 
 	DTree::DTree(){
 		maxDepth = 1;
-		DNode root;
-		m_tree.push_back(root);
+		m_tree.emplace_back();
 	}
 
 	int DTree::getMaxDepth(){
