@@ -229,6 +229,13 @@ class CoefficientSpectrum {
                                     const CoefficientSpectrum &s) {
         return os << s.ToString();
     }
+    Float Average() const{
+        Float sum = 0.f;
+        for (int i = 0; i < nSpectrumSamples; i++){
+            sum += c[i];
+        }
+        return sum / nSpectrumSamples;
+    }
     std::string ToString() const {
         std::string str = "[ ";
         for (int i = 0; i < nSpectrumSamples; ++i) {
