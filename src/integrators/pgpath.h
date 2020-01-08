@@ -64,9 +64,25 @@ public:
 
   Point2f dirToCanonical(const Vector3f& dir);//convert the dir vector to canonical 2d
   Vector3f canonicalToDir(const Point2f& canonical);//convert the canonical into vector
+
+  int numOfChildren() const;
+  DNode nodeAtIndex(int index) const;
 private:
   std::vector<DNode> m_tree;//maintain a tree to store the index of node, the index of root is 0
   int maxDepth;
+};
+
+class DTreeWrapper{
+public:
+    DTreeWrapper();
+    Vector3f sample(Sampler* sampler);
+    Float pdf(const Vector3f& dir);
+    void record(const Vector3f& dir, Spectrum& irradiance, RecordType type);//add recordType
+
+    void dump();
+private:
+    DTree sampling;
+    DTree building;
 };
 
 //spatial binary tree
@@ -76,8 +92,9 @@ public:
   SNode(const SNode& node);
   SNode& operator=(const SNode& node);
 
-  const SNode* acquire(Point3f& pos, std::vector<SNode> nodes) const;
-
+  //const SNode* acquire(Point3f& pos, std::vector<SNode> nodes) const;
+  DTreeWrapper* acquireDTreeWrapper(Point3f& pos, std::vector<SNode> nodes);
+  DTreeWrapper* acquireDTreeWrapper();
   bool isLeaf(int index) const { return child(index) == LEAFINDEX; };
   uint32_t child(int index) const;
   int childIndex(Point3f& pos) const; 
@@ -87,10 +104,10 @@ public:
   Float pdf(const Vector3f& dir);
   void record(const Vector3f& dir, Spectrum& irradiance, RecordType type);
   void refine();
+  void dump(std::vector<SNode>& nodes);
 private:
   uint16_t axis;//change the axis alternatively
-  DTree current;
-  DTree previous;
+  DTreeWrapper wrapper;
   std::array<uint32_t, 2> m_nodes;
 };
 
@@ -102,7 +119,9 @@ public:
   const Bounds3f& bounds() const{
     return m_bounds;
   }
-  const SNode* acquireDNode(Point3f& pos);
+  DTreeWrapper* acquireDTreeWrapper(Point3f pos);
+  void rebuild();
+  void dump();
 private:
   void normalize(Point3f& pos) const;
 
@@ -125,6 +144,8 @@ class PathGuidingIntegrator : public SamplerIntegrator{
   		Spectrum Li(const RayDifferential &ray, const Scene &scene, 
   					Sampler &sampler, MemoryArena &arena, int depth=0) const;
   private:
+      STree* m_sdtree;
+
   		//private data for original path intergrator
   		const int maxDepth;//max depth to terminate the tracing
   		const Float rrThreshold;//russian roulette threshold, to terminate the tracing in advance
