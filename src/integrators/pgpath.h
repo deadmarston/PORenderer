@@ -67,6 +67,8 @@ public:
 
   int numOfChildren() const;
   DNode nodeAtIndex(int index) const;
+
+  void dump() const;
 private:
   std::vector<DNode> m_tree;//maintain a tree to store the index of node, the index of root is 0
   int maxDepth;
@@ -77,9 +79,10 @@ public:
     DTreeWrapper();
     Vector3f sample(Sampler* sampler);
     Float pdf(const Vector3f& dir);
-    void record(const Vector3f& dir, Spectrum& irradiance, RecordType type);//add recordType
+    void record(const Vector3f& dir, Spectrum irradiance, RecordType type);//add recordType
 
     void dump();
+    void rebuild();
 private:
     DTree sampling;
     DTree building;
@@ -89,6 +92,7 @@ private:
 class SNode{
 public:
   SNode();
+  SNode(uint16_t _axis);
   SNode(const SNode& node);
   SNode& operator=(const SNode& node);
 
@@ -107,6 +111,7 @@ public:
   void dump(std::vector<SNode>& nodes);
 private:
   uint16_t axis;//change the axis alternatively
+  bool isleaf;
   DTreeWrapper wrapper;
   std::array<uint32_t, 2> m_nodes;
 };
@@ -120,7 +125,6 @@ public:
     return m_bounds;
   }
   DTreeWrapper* acquireDTreeWrapper(Point3f pos);
-  void rebuild();
   void dump();
 private:
   void normalize(Point3f& pos) const;

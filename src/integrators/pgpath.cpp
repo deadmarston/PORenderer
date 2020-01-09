@@ -199,19 +199,12 @@ namespace pbrt {
 		return sampling.pdf(dir);
 	}
 
-	void DTreeWrapper::record(const Vector3f& dir, Spectrum& irradiance, RecordType type = nearest){
+	void DTreeWrapper::record(const Vector3f& dir, Spectrum irradiance, RecordType type = nearest){
 		building.record(dir, irradiance.Average(), type);
 	}
 
 	void DTreeWrapper::dump(){
-		int size = sampling.numOfChildren();
-		for (int i = 0; i < size; i++){
-			DNode dnode = sampling.nodeAtIndex(i);
-			cout << "DNode " << i << ":" << endl;
-			for (int j = 0; j < 4; j++){
-				cout << dnode.sum(i) << " " << dnode.child(i) << endl;
-			}
-		}
+		building.dump();
 	}
 
 	STree::STree(Bounds3f bounds){
@@ -261,6 +254,14 @@ namespace pbrt {
 
 	SNode::SNode(){
 		axis = 0;
+		isleaf = true;
+		for (size_t i = 0; i < m_nodes.size(); i++){
+			m_nodes[i] = LEAFINDEX;
+		}
+	}
+
+	SNode::SNode(uint16_t _axis) : axis(_axis){
+		isleaf = true;
 		for (size_t i = 0; i < m_nodes.size(); i++){
 			m_nodes[i] = LEAFINDEX;
 		}
@@ -269,6 +270,7 @@ namespace pbrt {
 	SNode::SNode(const SNode& node){
 		axis = node.axis;
 		wrapper = node.wrapper;
+		isleaf = node.isleaf;
 		//current = node.current;
 		//previous = node.previous;
 		for (size_t i = 0; i < m_nodes.size(); i++){
@@ -279,6 +281,7 @@ namespace pbrt {
 	SNode& SNode::operator=(const SNode& node){
 		axis = node.axis;
 		wrapper = node.wrapper;
+		isleaf = node.isleaf;
 		//current = node.current;
 		//previous = node.previous;
 		for (size_t i = 0; i < m_nodes.size(); i++){
@@ -287,11 +290,11 @@ namespace pbrt {
 	}
 
 	void SNode::dump(std::vector<SNode>& nodes){
-		for (int i = 0; i < 2; i++){
-			if (isLeaf(i)){
-				wrapper.dump();
-			}else{
-				nodes[child(i)].dump(nodes);
+		if (isleaf){
+			wrapper.dump();
+		}else{
+			for (int i = 0; i < 2; i++){
+				nodes[i].dump(nodes);
 			}
 		}
 	}
@@ -535,25 +538,51 @@ namespace pbrt {
 
 	}
 
+	void DTree::dump() const{
+		for (int i = 0; i < m_tree.size(); i++){
+			cout << "dnode:" << i << endl;
+			for (int j = 0; j < 4; j++){
+				cout << "child: " << j 
+					 << " isLeaf: " << m_tree[i].isLeaf(j)
+					 << " sum: " << m_tree[i].sum(j)
+					 << " index: " << m_tree[i].child(j)
+					 << endl;
+			}
+		}
+	}
+
 	Float DTree::pdf(const Vector3f& dir){
 		Point2f can = dirToCanonical(dir);
 		return m_tree[0].pdf(can, m_tree);
 	}
 
 	Point2f DTree::dirToCanonical(const Vector3f& dir){
-		Point2f can;
+		/*Point2f can;
 		float cosTheta = max(min(dir.z, 1.f), -1.f);
 		float phi = atan2(dir.y, dir.x);
 		while(phi < 0) phi += 2*M_PI;
 		can.x = (cosTheta+1)/2.f;
 		can.y = phi/(2*M_PI);
+		return can;*/
+		Point2f can;
+		float cosTheta = max(min(dir.y, 1.f), -1.f);
+		float phi = atan2(dir.z, dir.x);
+		while(phi < 0) phi += 2*M_PI;
+
+		can.x = (cosTheta+1)/2.f;
+		can.y = phi/(2*M_PI);
+
 		return can;
 	}
 
 	Vector3f DTree::canonicalToDir(const Point2f& can){
 		assert(can.x >= 0 && can.y >= 0 && 1 >= can.x &&  1>= can.y);
-		float cosTheta = can.x*2-1;
+		/*float cosTheta = can.x*2-1;
 		float sinTheta = sqrt(1 - cosTheta*cosTheta);
+		float phi = can.y*2*M_PI;
+		return Vector3f(sinTheta*cos(phi), sinTheta*sin(phi), cosTheta);*/
+		float cosTheta = can.x*2-1;
+		float sinTheta = sqrt(1-cosTheta*cosTheta);
 		float phi = can.y*2*M_PI;
 		return Vector3f(sinTheta*cos(phi), sinTheta*sin(phi), cosTheta);
 	}
@@ -609,6 +638,7 @@ namespace pbrt {
 		    if (!Li.IsBlack()) {
 				if (IsDeltaLight(light.flags)){
 				    Ld += f * Li / lightPdf;
+				    dwrapper->record(wi, Li/lightPdf);
 				}
 				else {
 							//todo: consider the sd-tree, and utilize mixed pdf to compute the power heuristic
@@ -618,8 +648,9 @@ namespace pbrt {
 				    Float weight =
 					PowerHeuristic(1, lightPdf, 1, scatteringPdf);
 				    Ld += f * Li * weight / lightPdf;
+				    dwrapper->record(wi, Li*weight/lightPdf);
 				}
-				dwrapper->record(wi, Li);
+				
 		    }
 		}
 
@@ -671,8 +702,10 @@ namespace pbrt {
 				    Li = lightIsect.Le(-wi);
 			    } else
 					Li = light.Le(ray);
-			    if (!Li.IsBlack()) Ld += f * Li * Tr * weight / scatteringPdf;
-			    dwrapper->record(wi, Li);
+			    if (!Li.IsBlack()){
+			    	Ld += f * Li * Tr * weight / scatteringPdf;
+			    	dwrapper->record(wi, Li * Tr * weight / scatteringPdf);
+			    }
 			}
 	    }
 	    return Ld;
@@ -826,14 +859,13 @@ namespace pbrt {
     			};
     			LOG(INFO) << "Finished image tile " << tileBounds;
 
-    			//print the information of sdtree
-    			m_sdtree->dump();
-    			//
-
 				camera->film->MergeFilmTile(std::move(filmTile));
 				reporter.Update();    		
     		}, nTile);
     		//todo: collect the sd tree, refine it
+    		//print the information of sdtree
+    		m_sdtree->dump();
+    		//
     		reporter.Done();
     	}
     	LOG(INFO) << "Rendering finished";
