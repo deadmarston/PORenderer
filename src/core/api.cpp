@@ -60,6 +60,7 @@
 #include "integrators/sppm.h"
 #include "integrators/volpath.h"
 #include "integrators/whitted.h"
+#include "integrators/pm.h"
 #include "integrators/pgpath.h"
 #include "lights/diffuse.h"
 #include "lights/distant.h"
@@ -1667,6 +1668,8 @@ Integrator *RenderOptions::MakeIntegrator() const {
         return nullptr;
     }
 
+    //for the particular integrator like pgpath, we have to generate the sampler by itself
+    //todo: 
     std::shared_ptr<Sampler> sampler =
         MakeSampler(SamplerName, SamplerParams, camera->film);
     if (!sampler) {
@@ -1692,6 +1695,8 @@ Integrator *RenderOptions::MakeIntegrator() const {
         integrator = CreateAOIntegrator(IntegratorParams, sampler, camera);
     } else if (IntegratorName == "sppm") {
         integrator = CreateSPPMIntegrator(IntegratorParams, camera);
+    } else if (IntegratorName == "pm") {
+        integrator = CreatePMIntegrator(IntegratorParams, camera);
     } else if (IntegratorName == "pgpath") {
         integrator = CreatePGPathIntegrator(IntegratorParams, sampler, camera);
     } else {

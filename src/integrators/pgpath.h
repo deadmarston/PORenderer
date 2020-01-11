@@ -25,6 +25,8 @@ enum RecordType{ nearest = 0, filter };
 #define EPSILON 0.00001
 #define QUAD_MAX_DEPTH 20
 
+#define VERTEX_MAX_DEPTH 32//according to the original paper
+
 #define PG_DEBUG
 
 //todo: single thread model for SDTree
@@ -135,6 +137,32 @@ private:
   int maxDepth;
   Bounds3f m_bounds;
   Float m_extent;
+};
+
+struct RecordVertex{
+  Float irradiance;
+  DTreeWrapper* dwrapper;
+
+  RecordVertex(DTreeWrapper* _wrapper) : dwrapper(_wrapper){
+    irradiance = 0.f;
+  }
+
+  RecordVertex(){
+    dwrapper = nullptr;
+    irradiance = 0.f;
+  }
+
+  void setDTreeWrapper(DTreeWrapper* _wrapper){
+    dwrapper = _wrapper;
+  }
+
+  void commit(){
+    //todo: submit the irradiance to the dwrapper
+  }
+
+  void record(Float radiance, RecordType type = nearest){
+
+  }
 };
 
 // Path Guiding Path Integrator Declarations

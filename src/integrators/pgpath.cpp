@@ -774,7 +774,8 @@ namespace pbrt {
   		
   		ProgressReporter reporter(nTile.x * nTile.y, "Rendering");
     	{
-    		//todo:
+    		//todo: a test for rendering few times
+    		for (int i = 0; i < 3; i++){
     		ParallelFor2D([&](Point2i tile) {//solve it parallelly
 
     			//allocate memory arena for tile
@@ -864,6 +865,7 @@ namespace pbrt {
     		//todo: collect the sd tree, refine it
     		//print the information of sdtree
     		m_sdtree->dump();
+    		}
     		//
     		reporter.Done();
     	}
@@ -885,6 +887,10 @@ namespace pbrt {
 
   		//todo: add vertex to record the irradiance, and the submit it to the dtree finally
   		//the struct of vertex requires stored irradiance, dtreewrapper
+  		
+  		int nVertex = 0;
+
+  		std::array<RecordVertex, VERTEX_MAX_DEPTH> vertex;
 
   		//tracing loop
   		for (bounces = 0; ; bounces++)
@@ -963,6 +969,7 @@ namespace pbrt {
 
 	  		//todo: deal with the case of bssrdf
 
+
 	  		Spectrum rrBeta = beta * etaScale;
 	  		//terminate the tracing with russian roulette
 	  		if (rrBeta.MaxComponentValue() < rrThreshold && bounces > 3){
@@ -971,7 +978,14 @@ namespace pbrt {
 	  				break;
 	  			beta /= 1-q;//update the weight with the russian roulette failure weight 1-q
 	  		}
+
+	  		nVertex++;
   		}
+
+  		for (int i = 0; i < nVertex; i++){
+  			vertex[i].commit();
+  		}
+
   		return L;
   	}
 
