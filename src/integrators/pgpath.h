@@ -25,6 +25,8 @@ enum RecordType{ nearest = 0, filter };
 #define EPSILON 0.00001
 #define QUAD_MAX_DEPTH 20
 
+#define PG_DEBUG
+
 //todo: single thread model for SDTree
 
 class DNode{

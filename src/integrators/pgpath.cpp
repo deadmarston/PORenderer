@@ -602,60 +602,59 @@ namespace pbrt {
 	    VLOG(2) << "EstimateDirect uLight:" << uLight << " -> Li: " << Li << ", wi: "
 		    << wi << ", pdf: " << lightPdf;
 	    if (lightPdf > 0 && !Li.IsBlack()) {
-		// Compute BSDF or phase function's value for light sample
-		Spectrum f;
-		if (it.IsSurfaceInteraction()) {
-		    // Evaluate BSDF for light sampling strategy
-		    const SurfaceInteraction &isect = (const SurfaceInteraction &)it;
-		    f = isect.bsdf->f(isect.wo, wi, bsdfFlags) *
-			AbsDot(wi, isect.shading.n);
-		    scatteringPdf = isect.bsdf->Pdf(isect.wo, wi, bsdfFlags);
-		    VLOG(2) << "  surf f*dot :" << f << ", scatteringPdf: " << scatteringPdf;
-		} else {//todo: skip phase function for now
-		    // Evaluate phase function for light sampling strategy
-		    const MediumInteraction &mi = (const MediumInteraction &)it;
-		    Float p = mi.phase->p(mi.wo, wi);
-		    f = Spectrum(p);
-		    scatteringPdf = p;
-		    VLOG(2) << "  medium p: " << p;
-		}
-		if (!f.IsBlack()) {
-		    // Compute effect of visibility for light source sample
-		    if (handleMedia) {
-				Li *= visibility.Tr(scene, sampler);
-					VLOG(2) << "  after Tr, Li: " << Li;
-			    } else {
-			      	if (!visibility.Unoccluded(scene)) {
+			// Compute BSDF or phase function's value for light sample
+			Spectrum f;
+			if (it.IsSurfaceInteraction()) {
+			    // Evaluate BSDF for light sampling strategy
+			    const SurfaceInteraction &isect = (const SurfaceInteraction &)it;
+			    f = isect.bsdf->f(isect.wo, wi, bsdfFlags) *
+				AbsDot(wi, isect.shading.n);
+			    scatteringPdf = isect.bsdf->Pdf(isect.wo, wi, bsdfFlags);
+			    VLOG(2) << "  surf f*dot :" << f << ", scatteringPdf: " << scatteringPdf;
+			} else {//todo: skip phase function for now
+			    // Evaluate phase function for light sampling strategy
+			    const MediumInteraction &mi = (const MediumInteraction &)it;
+			    Float p = mi.phase->p(mi.wo, wi);
+			    f = Spectrum(p);
+			    scatteringPdf = p;
+			    VLOG(2) << "  medium p: " << p;
+			}
+			if (!f.IsBlack()) {
+			    // Compute effect of visibility for light source sample
+			    if (handleMedia) {
+					Li *= visibility.Tr(scene, sampler);
+						VLOG(2) << "  after Tr, Li: " << Li;
+				} else {
+				    if (!visibility.Unoccluded(scene)) {
 						VLOG(2) << "  shadow ray blocked";
 						Li = Spectrum(0.f);
-			      	} else{
+				    }else{
 						VLOG(2) << "  shadow ray unoccluded";
-			      	}
+				    }
 			    }
-		    }
 
-		    // Add light's contribution to reflected radiance
-		    if (!Li.IsBlack()) {
-				if (IsDeltaLight(light.flags)){
-				    Ld += f * Li / lightPdf;
-				    dwrapper->record(wi, Li/lightPdf);
+			    // Add light's contribution to reflected radiance
+			    if (!Li.IsBlack()) {
+					if (IsDeltaLight(light.flags)){
+					    Ld += f * Li / lightPdf;
+					    dwrapper->record(wi, Li/lightPdf);
+					}
+					else{
+						//todo: consider the sd-tree, and utilize mixed pdf to compute the power heuristic
+						//ex: mixed_pdf, d_pdf, b_pdf = pdf(direction)
+						//    weight = powerheuristic(mixed_pdf, lightPdf)
+						//    compute the Ld
+					    Float weight =
+						PowerHeuristic(1, lightPdf, 1, scatteringPdf);
+					    Ld += f * Li * weight / lightPdf;
+					    dwrapper->record(wi, Li*weight/lightPdf);
+					}
 				}
-				else {
-							//todo: consider the sd-tree, and utilize mixed pdf to compute the power heuristic
-							//ex: mixed_pdf, d_pdf, b_pdf = pdf(direction)
-							//    weight = powerheuristic(mixed_pdf, lightPdf)
-							//    compute the Ld
-				    Float weight =
-					PowerHeuristic(1, lightPdf, 1, scatteringPdf);
-				    Ld += f * Li * weight / lightPdf;
-				    dwrapper->record(wi, Li*weight/lightPdf);
-				}
-				
 		    }
 		}
 
 	    // Sample BSDF with multiple importance sampling
-	    if (!IsDeltaLight(light.flags)) {
+	    /*if (!IsDeltaLight(light.flags)) {
 			Spectrum f;
 			bool sampledSpecular = false;
 			if (it.IsSurfaceInteraction()) {
@@ -707,7 +706,7 @@ namespace pbrt {
 			    	dwrapper->record(wi, Li * Tr * weight / scatteringPdf);
 			    }
 			}
-	    }
+	    }*/
 	    return Ld;
 	}
 
@@ -883,6 +882,10 @@ namespace pbrt {
   		int bounces;
   		RayDifferential ray(r);
   		Float etaScale = 1;
+
+  		//todo: add vertex to record the irradiance, and the submit it to the dtree finally
+  		//the struct of vertex requires stored irradiance, dtreewrapper
+
   		//tracing loop
   		for (bounces = 0; ; bounces++)
   		{
@@ -901,7 +904,7 @@ namespace pbrt {
 	  			}
 	  		}
 
-	  		if (!foundIntersection || bounces > maxDepth){
+	  		if (!foundIntersection || bounces >= maxDepth){
 	  			//not found intersection or exceed the maximum depth, terminate it
 	  			break;
 	  		}
