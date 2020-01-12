@@ -1698,7 +1698,7 @@ Integrator *RenderOptions::MakeIntegrator() const {
     } else if (IntegratorName == "pm") {
         integrator = CreatePMIntegrator(IntegratorParams, camera);
     } else if (IntegratorName == "pgpath") {
-        integrator = CreatePGPathIntegrator(IntegratorParams, sampler, camera);
+        integrator = CreatePGPathIntegrator(IntegratorParams, camera);//for path guiding. we generate sampler during the rendering process
     } else {
         Error("Integrator \"%s\" unknown.", IntegratorName.c_str());
         return nullptr;

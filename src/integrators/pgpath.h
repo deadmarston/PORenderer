@@ -20,12 +20,15 @@ namespace pbrt{
 //magic number
 enum RecordType{ nearest = 0, filter };
 
+enum BudgetStrategy{ sample = 0, time, naive}; 
+
 //directional quad tree
 #define LEAFINDEX 0//utilize a magic number NODEINDEX to define the index of leaf
 #define EPSILON 0.00001
 #define QUAD_MAX_DEPTH 20
 
 #define VERTEX_MAX_DEPTH 32//according to the original paper
+#define LEARNING_MAX_INTERATION 10//max interations for learning and rendering
 
 #define PG_DEBUG
 
@@ -130,6 +133,7 @@ public:
   }
   DTreeWrapper* acquireDTreeWrapper(Point3f pos);
   void dump();
+  void refine();
 private:
   void normalize(Point3f& pos) const;
 
@@ -140,36 +144,57 @@ private:
 };
 
 struct RecordVertex{
-  Float irradiance;
+  Spectrum radiance;
   DTreeWrapper* dwrapper;
+  Vector3f wi;
+  RecordType type;
 
-  RecordVertex(DTreeWrapper* _wrapper) : dwrapper(_wrapper){
-    irradiance = 0.f;
-  }
+  RecordVertex(DTreeWrapper* _wrapper, Vector3f _wi) 
+              : dwrapper(_wrapper), wi(_wi){
+                radiance = Spectrum(0.f);
+                type = nearest;
+              }
+
+  RecordVertex(DTreeWrapper* _wrapper, Spectrum _radiance, Vector3f  _wi)
+                : dwrapper(_wrapper),
+                  radiance(_radiance),
+                  wi(_wi)
+                {
+                  type = nearest;
+                }
+
+  RecordVertex(DTreeWrapper* _wrapper, Spectrum _radiance, Vector3f  _wi, RecordType _type)
+                : dwrapper(_wrapper),
+                  radiance(_radiance),
+                  wi(_wi),
+                  type(_type)
+                {
+                }
 
   RecordVertex(){
     dwrapper = nullptr;
-    irradiance = 0.f;
-  }
-
-  void setDTreeWrapper(DTreeWrapper* _wrapper){
-    dwrapper = _wrapper;
+    radiance = Spectrum(0.f);
+    type = nearest;
+    wi = Vector3f(0.f, 0.f, 0.f);
   }
 
   void commit(){
-    //todo: submit the irradiance to the dwrapper
+    //todo: submit the irrad
+    if (type == nearest){
+      dwrapper->record(wi, radiance.Average(), type);
+    }
   }
 
-  void record(Float radiance, RecordType type = nearest){
-
+  void record(Spectrum _radiance){
+    radiance += _radiance;
   }
 };
 
 // Path Guiding Path Integrator Declarations
-class PathGuidingIntegrator : public SamplerIntegrator{
+class PathGuidingIntegrator : public Integrator{
   public:
   		PathGuidingIntegrator(int maxDepth, std::shared_ptr<const Camera> camera, 
-  							  std::shared_ptr<Sampler> sampler,
+                  const int spp, 
   							  const Bounds2i &pixelBounds, Float rrThreshold = 1,
   							  const std::string &lightSampleStrategy = "spatial",
   							  const Float quadThreshold = 0.01f, const Float c = 12000);
@@ -177,7 +202,11 @@ class PathGuidingIntegrator : public SamplerIntegrator{
   		void Render(const Scene &scene);
   		Spectrum Li(const RayDifferential &ray, const Scene &scene, 
   					Sampler &sampler, MemoryArena &arena, int depth=0) const;
+      void figureRenderBudgets();
   private:
+      std::shared_ptr<const Camera> camera;
+      const Bounds2i pixelBounds;
+
       STree* m_sdtree;
 
   		//private data for original path intergrator
@@ -193,14 +222,19 @@ class PathGuidingIntegrator : public SamplerIntegrator{
   		//light distribution created based on the light sample strategy
   		std::unique_ptr<LightDistribution>lightDistribution;
 
+      int spp; 
+      std::array<int, LEARNING_MAX_INTERATION> iterations;
+      int numOfIterations;
+
   		//private data for practical path guiding
   		//todo:
-  		Float quadThreshold;//a threshold for dividing the quad
-  		Float c;//a constant c trades off convergence of directional quadtrees with spatial resolution of the binary tree
+  		const Float quadThreshold;//a threshold for dividing the quad
+  		const Float c;//a constant c trades off convergence of directional quadtrees with spatial resolution of the binary tree
+      
+      BudgetStrategy budgetStrategy;
   };
 
 PathGuidingIntegrator *CreatePGPathIntegrator(const ParamSet &params,
-											  std::shared_ptr<Sampler> sampler,
 											  std::shared_ptr<const Camera> camera);
 
 }//end pbrt

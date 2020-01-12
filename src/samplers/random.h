@@ -57,7 +57,7 @@ class RandomSampler : public Sampler {
 };
 
 Sampler *CreateRandomSampler(const ParamSet &params);
-
+Sampler *CreateRandomSampler(const int ns);
 }  // namespace pbrt
 
 #endif  // PBRT_SAMPLERS_RANDOM_H

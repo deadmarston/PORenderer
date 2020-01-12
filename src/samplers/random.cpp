@@ -76,4 +76,9 @@ Sampler *CreateRandomSampler(const ParamSet &params) {
     return new RandomSampler(ns);
 }
 
+//overlad the create random sampler for pgpath
+Sampler *CreateRandomSampler(const int ns){
+    return new RandomSampler(ns);
+}
+
 }  // namespace pbrt

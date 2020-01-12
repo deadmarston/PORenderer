@@ -4,6 +4,7 @@
 
 
 #include "integrators/pgpath.h"
+#include "samplers/random.h"
 #include "bssrdf.h"
 #include "camera.h"
 #include "film.h"
@@ -214,6 +215,10 @@ namespace pbrt {
 		m_bounds.pMax = m_bounds.pMin + Vector3f(m_extent, m_extent, m_extent);//todo: make it a cube, needs to figure out why
 		maxDepth = 0;
 		nodes.emplace_back();
+	}
+
+	void STree::refine(){
+		
 	}
 
 	void STree::dump(){
@@ -637,7 +642,8 @@ namespace pbrt {
 			    if (!Li.IsBlack()) {
 					if (IsDeltaLight(light.flags)){
 					    Ld += f * Li / lightPdf;
-					    dwrapper->record(wi, Li/lightPdf);
+					    RecordVertex v(dwrapper, f * Li/ lightPdf, wi);
+					    v.commit();
 					}
 					else{
 						//todo: consider the sd-tree, and utilize mixed pdf to compute the power heuristic
@@ -647,14 +653,15 @@ namespace pbrt {
 					    Float weight =
 						PowerHeuristic(1, lightPdf, 1, scatteringPdf);
 					    Ld += f * Li * weight / lightPdf;
-					    dwrapper->record(wi, Li*weight/lightPdf);
+					    RecordVertex v(dwrapper, f * Li * weight / lightPdf, wi);
+					    v.commit();
 					}
 				}
 		    }
 		}
 
 	    // Sample BSDF with multiple importance sampling
-	    /*if (!IsDeltaLight(light.flags)) {
+	    if (!IsDeltaLight(light.flags)) {
 			Spectrum f;
 			bool sampledSpecular = false;
 			if (it.IsSurfaceInteraction()) {
@@ -706,7 +713,7 @@ namespace pbrt {
 			    	dwrapper->record(wi, Li * Tr * weight / scatteringPdf);
 			    }
 			}
-	    }*/
+	    }
 	    return Ld;
 	}
 
@@ -734,22 +741,44 @@ namespace pbrt {
 	}
 	
 	PathGuidingIntegrator::PathGuidingIntegrator(int maxDepth, std::shared_ptr<const Camera> camera, 
-  							  std::shared_ptr<Sampler> sampler,
+  							  const int spp,
   							  const Bounds2i &pixelBounds, Float rrThreshold,
   							  const std::string &lightSampleStrategy,
   							  const Float quadThreshold, const Float c)
-		: SamplerIntegrator(camera, sampler, pixelBounds),
+		: camera(camera),
+		  pixelBounds(pixelBounds),
+		  spp(spp),
 		  maxDepth(maxDepth),
 		  rrThreshold(rrThreshold),
 		  lightSampleStrategy(lightSampleStrategy),
 		  quadThreshold(quadThreshold),
 		  c(c)
 		   {
+		   		budgetStrategy = naive;
+		   		figureRenderBudgets();
 		   }
+
+    void PathGuidingIntegrator::figureRenderBudgets(){
+    	switch (budgetStrategy){//todo: finish the configure of rendering budget 
+    		case naive: default: {
+    			int budget = 1;
+    			int iter = 0;
+    			int remain = spp;
+    			do{
+    				iterations[iter] = budget;
+    				remain -= budget;
+    				budget *= 2;
+    			} while (iter++ < LEARNING_MAX_INTERATION && remain > 0);
+    			numOfIterations = iter;
+    			if (numOfIterations == LEARNING_MAX_INTERATION){
+    				iterations[numOfIterations-1] += remain;
+    			}
+    		}	
+    	}
+    }
 
   	void PathGuidingIntegrator::Preprocess(const Scene &scene, Sampler &sampler)
   	{
-  		m_sdtree = new STree(scene.WorldBound());
   		lightDistribution = CreateLightSampleDistribution(lightSampleStrategy, scene);
   	}
 
@@ -761,116 +790,121 @@ namespace pbrt {
   		//todo: divide the whole rendering process into several small rendering process
   		//generate one SD-Tree for guiding, and one SD-Tree for storing the light field
   		//consider the parallel programming
+  		m_sdtree = new STree(scene.WorldBound());//build the initial sdtree
 
-  		//first, we preprocess the scene
-  		Preprocess(scene, *sampler);
+  		for (int iter = 0; iter < numOfIterations; iter++){ //progressive rendering
+  			cout << "the " << iter+1 << "th rendering with budget " <<  iterations[iter] << endl;
+  			std::shared_ptr<Sampler> sampler = std::shared_ptr<Sampler>(CreateRandomSampler(iterations[iter]));
 
-  		//compute nTiles, for parallel programming
-  		const int tileSize = 16;
-  		Bounds2i sampleBounds = camera->film->GetSampleBounds();
-  		Vector2i sampleExtent = sampleBounds.Diagonal();
+	  		//first, we preprocess the scene
+	  		Preprocess(scene, *sampler);
 
-  		Point2i nTile((sampleExtent.x+tileSize-1)/tileSize, (sampleExtent.y+tileSize-1)/tileSize); 
-  		
-  		ProgressReporter reporter(nTile.x * nTile.y, "Rendering");
-    	{
-    		//todo: a test for rendering few times
-    		for (int i = 0; i < 3; i++){
-    		ParallelFor2D([&](Point2i tile) {//solve it parallelly
+	  		//compute nTiles, for parallel programming
+	  		const int tileSize = 16;
+	  		Bounds2i sampleBounds = camera->film->GetSampleBounds();
+	  		Vector2i sampleExtent = sampleBounds.Diagonal();
 
-    			//allocate memory arena for tile
-    			MemoryArena arena;
+	  		Point2i nTile((sampleExtent.x+tileSize-1)/tileSize, (sampleExtent.y+tileSize-1)/tileSize); 
+			
+	  		ProgressReporter reporter(nTile.x * nTile.y, "Rendering");
+	    	{
+	    		ParallelFor2D([&](Point2i tile) {//solve it parallelly
 
-    			//seed
-    			int seed = tile.y * nTile.x + tile.x;
-    			std::unique_ptr<Sampler> tileSampler = sampler->Clone(seed);
+	    			//allocate memory arena for tile
+	    			MemoryArena arena;
 
-    			//compute bounds
-    			int x0 = sampleBounds.pMin.x + tile.x * tileSize;
-    			int y0 = sampleBounds.pMin.y + tile.y * tileSize;
-    			int x1 = std::min(x0 + tileSize, sampleBounds.pMax.x);
-    			int y1 = std::min(y0 + tileSize, sampleBounds.pMax.y);
-    			Bounds2i tileBounds(Point2i(x0, y0), Point2i(x1, y1));
-	            LOG(INFO) << "Starting image tile " << tileBounds;
+	    			//seed
+	    			int seed = (tile.y * nTile.x + tile.x)*iterations[iter];
+	    			std::unique_ptr<Sampler> tileSampler = sampler->Clone(seed);
 
-	            // Get _FilmTile_ for tile
-	            std::unique_ptr<FilmTile> filmTile =
-	                camera->film->GetFilmTile(tileBounds);
+	    			//compute bounds
+	    			int x0 = sampleBounds.pMin.x + tile.x * tileSize;
+	    			int y0 = sampleBounds.pMin.y + tile.y * tileSize;
+	    			int x1 = std::min(x0 + tileSize, sampleBounds.pMax.x);
+	    			int y1 = std::min(y0 + tileSize, sampleBounds.pMax.y);
+	    			Bounds2i tileBounds(Point2i(x0, y0), Point2i(x1, y1));
+		            LOG(INFO) << "Starting image tile " << tileBounds;
 
-    			//lookover pixels to render
-    			for (Point2i pixel : tileBounds)
-    			{
-    				{
-	    				ProfilePhase pp(Prof::StartPixel);
-	                    tileSampler->StartPixel(pixel);
-                	}
+		            // Get _FilmTile_ for tile
+		            std::unique_ptr<FilmTile> filmTile =
+		                camera->film->GetFilmTile(tileBounds);
 
-                	// Do this check after the StartPixel() call; this keeps
-	                // the usage of RNG values from (most) Samplers that use
-	                // RNGs consistent, which improves reproducability /
-	                // debugging.
-	                if (!InsideExclusive(pixel, pixelBounds))
-	                    continue;
+	    			//lookover pixels to render
+	    			for (Point2i pixel : tileBounds)
+	    			{
+	    				{
+		    				ProfilePhase pp(Prof::StartPixel);
+		                    tileSampler->StartPixel(pixel);
+	                	}
 
-	                //rendering process
-	                do{
-	                	//camera sampler
-	                	CameraSample cameraSample = tileSampler->GetCameraSample(pixel);
+	                	// Do this check after the StartPixel() call; this keeps
+		                // the usage of RNG values from (most) Samplers that use
+		                // RNGs consistent, which improves reproducability /
+		                // debugging.
+		                if (!InsideExclusive(pixel, pixelBounds))
+		                    continue;
 
-	                	RayDifferential ray;
-	                	Float rayWeight = camera->GenerateRayDifferential(cameraSample, &ray);
-	                	//todo: figure out why scale
-	                	ray.ScaleDifferentials(1 / std::sqrt((Float)tileSampler->samplesPerPixel));
-                    	//++nCameraRays;
+		                //rendering process
+		                do{
+		                	//camera sampler
+		                	CameraSample cameraSample = tileSampler->GetCameraSample(pixel);
 
-                    	Spectrum L(0.f);
-                    	if (rayWeight > 0) L = Li(ray, scene, *tileSampler, arena);
+		                	RayDifferential ray;
+		                	Float rayWeight = camera->GenerateRayDifferential(cameraSample, &ray);
+		                	//todo: figure out why scale
+		                	ray.ScaleDifferentials(1 / std::sqrt((Float)tileSampler->samplesPerPixel));
+	                    	//++nCameraRays;
 
-                    	if (L.HasNaNs()){
-                    		LOG(ERROR) << StringPrintf(
-	                            "Not-a-number radiance value returned "
-	                            "for pixel (%d, %d), sample %d. Setting to black.",
-	                            pixel.x, pixel.y,
-	                            (int)tileSampler->CurrentSampleNumber());
-                    		L = Spectrum(0.f);
-                    	}else if (L.y() < -1e-5){
-                    		LOG(ERROR) << StringPrintf(
-	                            "Negative luminance value, %f, returned "
-	                            "for pixel (%d, %d), sample %d. Setting to black.",
-	                            L.y(), pixel.x, pixel.y,
-	                            (int)tileSampler->CurrentSampleNumber());
-	                        L = Spectrum(0.f);
-                    	} else if (std::isinf(L.y())){
-                    		LOG(ERROR) << StringPrintf(
-	                            "Infinite luminance value returned "
-	                            "for pixel (%d, %d), sample %d. Setting to black.",
-	                            pixel.x, pixel.y,
-	                            (int)tileSampler->CurrentSampleNumber());
-	                        L = Spectrum(0.f);
-                    	}
-                    	VLOG(1) << "Camera sample: " << cameraSample << " -> ray: " <<
-                        	ray << " -> L = " << L;
+	                    	Spectrum L(0.f);
+	                    	if (rayWeight > 0) L = Li(ray, scene, *tileSampler, arena);
 
-                        //add ray's contribution to image
-                        filmTile->AddSample(cameraSample.pFilm, L, rayWeight);
+	                    	if (L.HasNaNs()){
+	                    		LOG(ERROR) << StringPrintf(
+		                            "Not-a-number radiance value returned "
+		                            "for pixel (%d, %d), sample %d. Setting to black.",
+		                            pixel.x, pixel.y,
+		                            (int)tileSampler->CurrentSampleNumber());
+	                    		L = Spectrum(0.f);
+	                    	}else if (L.y() < -1e-5){
+	                    		LOG(ERROR) << StringPrintf(
+		                            "Negative luminance value, %f, returned "
+		                            "for pixel (%d, %d), sample %d. Setting to black.",
+		                            L.y(), pixel.x, pixel.y,
+		                            (int)tileSampler->CurrentSampleNumber());
+		                        L = Spectrum(0.f);
+	                    	} else if (std::isinf(L.y())){
+	                    		LOG(ERROR) << StringPrintf(
+		                            "Infinite luminance value returned "
+		                            "for pixel (%d, %d), sample %d. Setting to black.",
+		                            pixel.x, pixel.y,
+		                            (int)tileSampler->CurrentSampleNumber());
+		                        L = Spectrum(0.f);
+	                    	}
+	                    	VLOG(1) << "Camera sample: " << cameraSample << " -> ray: " <<
+	                        	ray << " -> L = " << L;
 
-                        arena.Reset();
-	                }while(tileSampler->StartNextSample());
-    			};
-    			LOG(INFO) << "Finished image tile " << tileBounds;
+	                        if (iter == numOfIterations-1){
+		                        //add ray's contribution to image
+		                        filmTile->AddSample(cameraSample.pFilm, L, rayWeight);
+		                    }
 
-				camera->film->MergeFilmTile(std::move(filmTile));
-				reporter.Update();    		
-    		}, nTile);
-    		//todo: collect the sd tree, refine it
-    		//print the information of sdtree
-    		m_sdtree->dump();
-    		}
-    		//
-    		reporter.Done();
-    	}
-    	LOG(INFO) << "Rendering finished";
+	                        arena.Reset();
+		                }while(tileSampler->StartNextSample());
+	    			};
+	    			LOG(INFO) << "Finished image tile " << tileBounds;
 
+					camera->film->MergeFilmTile(std::move(filmTile));
+					reporter.Update();    		
+	    		}, nTile);
+	    		//todo: collect the sd tree, refine it
+	    		//print the information of sdtree
+	    		m_sdtree->dump();
+	    		m_sdtree->refine();
+	    		//
+	    		reporter.Done();
+	    	};
+	    	LOG(INFO) << "Rendering finished";
+	    }
 	    // Save final image after rendering
 	    camera->film->WriteImage();
   	}
@@ -892,6 +926,12 @@ namespace pbrt {
 
   		std::array<RecordVertex, VERTEX_MAX_DEPTH> vertex;
 
+  		auto recordRadianceForVertex = [&](Spectrum& radiance){
+  			for (int i = 0; i < nVertex; i++){
+  				vertex[i].record(radiance);
+  			}
+  		};
+
   		//tracing loop
   		for (bounces = 0; ; bounces++)
   		{
@@ -899,7 +939,7 @@ namespace pbrt {
 	  		SurfaceInteraction isect;
 	  		bool foundIntersection = scene.Intersect(ray, &isect);
 
-	  		if (bounces == 0 || specularBounce){
+	  		if (bounces == 0 || specularBounce){//todo: need to figure out
 	  			//add emitted light at path vertex
 	  			if (foundIntersection){
 	  				L += beta * isect.Le(-ray.d);
@@ -940,6 +980,7 @@ namespace pbrt {
 	  			//it back to the sdtree
 	  			Spectrum Ld = beta * UniformSampleOneLight_PG(isect, scene, arena, sampler, false, dwrapper, distrib);
 	  			L += Ld;
+	  			recordRadianceForVertex(Ld);
 	  		}
 
 	  		//indirect lighting computation
@@ -967,6 +1008,9 @@ namespace pbrt {
 
 	  		ray = isect.SpawnRay(wi);
 
+	  		//generate a new vertex by this wi and dwrapper
+	  		vertex[nVertex++] = RecordVertex(dwrapper, wi);
+
 	  		//todo: deal with the case of bssrdf
 
 
@@ -979,7 +1023,6 @@ namespace pbrt {
 	  			beta /= 1-q;//update the weight with the russian roulette failure weight 1-q
 	  		}
 
-	  		nVertex++;
   		}
 
   		for (int i = 0; i < nVertex; i++){
@@ -990,10 +1033,10 @@ namespace pbrt {
   	}
 
 	PathGuidingIntegrator *CreatePGPathIntegrator(const ParamSet &params,
-												  std::shared_ptr<Sampler> sampler,
 												  std::shared_ptr<const Camera> camera)
 	{
 		int maxDepth = params.FindOneInt("maxdepth", 5);
+		int spp = params.FindOneInt("spp", 1023);
 		int np;
 		const int *pb = params.FindInt("pixelBounds", &np);
 		Bounds2i pixelBounds = camera->film->GetSampleBounds();
@@ -1012,7 +1055,7 @@ namespace pbrt {
 		Float rrThreshold = params.FindOneFloat("rrthreshold", 1.);
 		std::string lightStrategy = params.FindOneString("lightsamplestrategy", "spatial");
 		std::cout << "pgpath integrator created\n";
-		return new PathGuidingIntegrator(maxDepth, camera, sampler, pixelBounds,
+		return new PathGuidingIntegrator(maxDepth, camera, spp, pixelBounds,
 										 rrThreshold, lightStrategy);
 	}
 
