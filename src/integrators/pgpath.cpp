@@ -15,6 +15,7 @@
 #include "progressreporter.h"
 #include <iostream>
 #include <vector>
+#include <stack>
 using namespace std;
 //12.7 , implement the original path tracer
 //12.23, add comments for mis with nee, preparing to finish it asap
@@ -218,7 +219,45 @@ namespace pbrt {
 	}
 
 	void STree::refine(){
-		
+		//first, divide the stree
+		divideSTree();
+		//then, for all the dtreewrapper in the leaf node, divide the dtree
+	}
+
+	void STree::divideSNode(int id){
+		nodes.resize(nodes.size() + 2);//todo: for safety, we need to check the size of nodes
+
+		uint16_t axis = (nodes[id].axis+1)%3;
+
+		for (int j = 0; j < 2; j++){
+			int index = nodes.size() - 2 + j;
+			nodes[id].setChild(j, index);
+			nodes[index].axis = axis;
+			nodes[index].wrapper = nodes[id].wrapper;
+			nodes[index].isleaf = true;
+		}
+		nodes[id].wrapper = {};
+		nodes[id].isleaf = false;
+	}
+
+	void STree::divideSTree(){
+		//todo: chech whether the memory usage is over the limit
+		std::stack<int> ids;//record the index of nodes
+		ids.push(0);
+
+		while (!ids.empty()){//we try to visit all nodes in a bfs way
+			int id = ids.top();
+			if (nodes[id].isleaf){//divide the leaf
+				if (nodes[id].shallDivide(1)){//todo: the threshold should be a number controlled by user
+					divideSNode(id);
+				}
+			}else{
+				for (int j = 0; j < 2; j++){
+					ids.push(nodes[id].child(j));
+				}
+			}
+			ids.pop();
+		}
 	}
 
 	void STree::dump(){
@@ -294,12 +333,20 @@ namespace pbrt {
 		}
 	}
 
+	void SNode::setChild(int i, uint32_t index){
+		m_nodes[i] = index;
+	}
+
+	bool SNode::shallDivide(Float divideThreshold){
+		return wrapper.getNumOfSamples() > divideThreshold;
+	}
+
 	void SNode::dump(std::vector<SNode>& nodes){
 		if (isleaf){
 			wrapper.dump();
 		}else{
 			for (int i = 0; i < 2; i++){
-				nodes[i].dump(nodes);
+				nodes[child(i)].dump(nodes);
 			}
 		}
 	}
@@ -312,10 +359,6 @@ namespace pbrt {
 			return nodes[child(index)].acquire(pos, nodes);
 		}
 	}*/
-	DTreeWrapper* SNode::acquireDTreeWrapper(){
-		return &wrapper;
-	}
-
 	DTreeWrapper* SNode::acquireDTreeWrapper(Point3f& pos, std::vector<SNode> nodes){
 		int index = childIndex(pos);
 		if (isLeaf(index)){
@@ -506,6 +549,14 @@ namespace pbrt {
 	DTree::DTree(){
 		maxDepth = 1;
 		m_tree.emplace_back();
+		samples.store(0., std::memory_order_relaxed);
+	}
+
+	DTree& DTree::operator=(const DTree& dtree){
+		m_tree = dtree.m_tree;
+		maxDepth = dtree.maxDepth;
+		samples.store(dtree.numOfSample());
+		return *this;
 	}
 
 	int DTree::numOfChildren() const{
@@ -532,7 +583,7 @@ namespace pbrt {
 
 	void DTree::record(const Vector3f& dir, Float irradiance, RecordType type = nearest){
 		Point2f can = dirToCanonical(dir);
-
+		addToAtomicFloat(samples, 1.0);
 		//todo: improvement for filter recording
 		if (type == nearest){
 			m_tree[0].record(can, irradiance, m_tree);
@@ -544,6 +595,7 @@ namespace pbrt {
 	}
 
 	void DTree::dump() const{
+		cout << "dtree size: " << m_tree.size() << endl;
 		for (int i = 0; i < m_tree.size(); i++){
 			cout << "dnode:" << i << endl;
 			for (int j = 0; j < 4; j++){
@@ -805,7 +857,6 @@ namespace pbrt {
 	  		Vector2i sampleExtent = sampleBounds.Diagonal();
 
 	  		Point2i nTile((sampleExtent.x+tileSize-1)/tileSize, (sampleExtent.y+tileSize-1)/tileSize); 
-			
 	  		ProgressReporter reporter(nTile.x * nTile.y, "Rendering");
 	    	{
 	    		ParallelFor2D([&](Point2i tile) {//solve it parallelly
@@ -854,7 +905,6 @@ namespace pbrt {
 		                	//todo: figure out why scale
 		                	ray.ScaleDifferentials(1 / std::sqrt((Float)tileSampler->samplesPerPixel));
 	                    	//++nCameraRays;
-
 	                    	Spectrum L(0.f);
 	                    	if (rayWeight > 0) L = Li(ray, scene, *tileSampler, arena);
 
@@ -899,7 +949,10 @@ namespace pbrt {
 	    		//todo: collect the sd tree, refine it
 	    		//print the information of sdtree
 	    		m_sdtree->dump();
+	    		cout << "begin refining" << endl;
 	    		m_sdtree->refine();
+	    		cout << "refining finished\n";
+	    		m_sdtree->dump();
 	    		//
 	    		reporter.Done();
 	    	};
@@ -972,7 +1025,6 @@ namespace pbrt {
 
 	  		//direct lighting computation with light distribution
 	  		const Distribution1D *distrib = lightDistribution->Lookup(isect.p);
-
 	  		//sample illumination from lights to find path contribution
 	  		//skip this for perfectly specular BSDFS
 	  		if (isect.bsdf->NumComponents(BxDFType(BSDF_ALL & ~BSDF_SPECULAR)) > 0){
@@ -982,7 +1034,6 @@ namespace pbrt {
 	  			L += Ld;
 	  			recordRadianceForVertex(Ld);
 	  		}
-
 	  		//indirect lighting computation
 	  		//generate the next ray to trace
 

@@ -54,6 +54,7 @@ public:
   Float build(std::vector<DNode>& nodes);
 
   DNode& operator=(const DNode& node);
+
 private:
   std::array<std::atomic<Float>, 4> m_sum;//record the irradiance
   std::array<uint16_t, 4> m_nodes;//store the index of children
@@ -76,9 +77,14 @@ public:
   DNode nodeAtIndex(int index) const;
 
   void dump() const;
+  Float numOfSample() const { return samples.load(std::memory_order_relaxed); };//todo
+
+  DTree& operator=(const DTree& tree);
 private:
   std::vector<DNode> m_tree;//maintain a tree to store the index of node, the index of root is 0
   int maxDepth;
+
+  std::atomic<Float> samples;
 };
 
 class DTreeWrapper{
@@ -90,7 +96,9 @@ public:
 
     void dump();
     void rebuild();
-private:
+
+    Float getNumOfSamples() const { return building.numOfSample(); };
+
     DTree sampling;
     DTree building;
 };
@@ -105,10 +113,10 @@ public:
 
   //const SNode* acquire(Point3f& pos, std::vector<SNode> nodes) const;
   DTreeWrapper* acquireDTreeWrapper(Point3f& pos, std::vector<SNode> nodes);
-  DTreeWrapper* acquireDTreeWrapper();
   bool isLeaf(int index) const { return child(index) == LEAFINDEX; };
   uint32_t child(int index) const;
   int childIndex(Point3f& pos) const; 
+  void setChild(int i, uint32_t index);
   int depthAt(Point3f& pos, std::vector<SNode>& nodes) const;
 
   Vector3f sample(Sampler* sampler);
@@ -116,10 +124,12 @@ public:
   void record(const Vector3f& dir, Spectrum& irradiance, RecordType type);
   void refine();
   void dump(std::vector<SNode>& nodes);
-private:
+  bool shallDivide(Float divideThreshold);
+
+  DTreeWrapper wrapper;
   uint16_t axis;//change the axis alternatively
   bool isleaf;
-  DTreeWrapper wrapper;
+private:
   std::array<uint32_t, 2> m_nodes;
 };
 
@@ -134,6 +144,9 @@ public:
   DTreeWrapper* acquireDTreeWrapper(Point3f pos);
   void dump();
   void refine();
+
+  void divideSTree();
+  void divideSNode(int id);
 private:
   void normalize(Point3f& pos) const;
 
