@@ -80,7 +80,7 @@ public:
   Float numOfSample() const { return samples.load(std::memory_order_relaxed); };//todo
 
   DTree& operator=(const DTree& tree);
-private:
+
   std::vector<DNode> m_tree;//maintain a tree to store the index of node, the index of root is 0
   int maxDepth;
 
@@ -90,6 +90,7 @@ private:
 class DTreeWrapper{
 public:
     DTreeWrapper();
+    DTreeWrapper& operator=(const DTreeWrapper& dwrapper);
     Vector3f sample(Sampler* sampler);
     Float pdf(const Vector3f& dir);
     void record(const Vector3f& dir, Spectrum irradiance, RecordType type);//add recordType
@@ -112,7 +113,7 @@ public:
   SNode& operator=(const SNode& node);
 
   //const SNode* acquire(Point3f& pos, std::vector<SNode> nodes) const;
-  DTreeWrapper* acquireDTreeWrapper(Point3f& pos, std::vector<SNode> nodes);
+  DTreeWrapper* acquireDTreeWrapper(Point3f& pos, std::vector<SNode>& nodes);
   bool isLeaf(int index) const { return child(index) == LEAFINDEX; };
   uint32_t child(int index) const;
   int childIndex(Point3f& pos) const; 

@@ -22,6 +22,9 @@ using namespace std;
 namespace pbrt {
 	STAT_COUNTER("Integrator/Camera rays traced", nCameraRays);
 
+	//debug
+  	static int iter = 0;
+
 	bool areSame(Float a, Float b){
 	  	return fabs(a-b) < EPSILON;
 	}
@@ -193,6 +196,11 @@ namespace pbrt {
 	DTreeWrapper::DTreeWrapper(){
 	}
 
+	DTreeWrapper& DTreeWrapper::operator=(const DTreeWrapper& dwrapper){
+		sampling = dwrapper.sampling;
+		building = dwrapper.building;
+	}
+
 	Vector3f DTreeWrapper::sample(Sampler* sampler){
 		return sampling.sample(sampler);
 	}
@@ -247,6 +255,7 @@ namespace pbrt {
 
 		while (!ids.empty()){//we try to visit all nodes in a bfs way
 			int id = ids.top();
+			ids.pop();
 			if (nodes[id].isleaf){//divide the leaf
 				if (nodes[id].shallDivide(1)){//todo: the threshold should be a number controlled by user
 					divideSNode(id);
@@ -256,12 +265,26 @@ namespace pbrt {
 					ids.push(nodes[id].child(j));
 				}
 			}
-			ids.pop();
 		}
 	}
 
 	void STree::dump(){
+		cout << "stree size: " << nodes.size() << endl;
 		//dfs to find the leaf
+		cout << "============dump sdtree============" << endl;
+		for (int i = 0; i < nodes.size(); i++){
+			cout << "dump node " << i << endl;
+			cout << "isleaf: " << nodes[i].isleaf
+				 << " axis: " << nodes[i].axis
+				 << endl; 
+			if (!nodes[i].isleaf){
+				cout << "child1: " << nodes[i].child(0)
+					 << " child2: " << nodes[i].child(1)
+					 << endl;
+			}
+ 		}
+
+		cout << "============dump sdtree finished============" << endl;
 		nodes[0].dump(nodes); 
 	}
 
@@ -343,8 +366,12 @@ namespace pbrt {
 
 	void SNode::dump(std::vector<SNode>& nodes){
 		if (isleaf){
+			cout << "dump stree" << endl;
+			cout << "dtreewrapper address: " << &wrapper << endl;
 			wrapper.dump();
 		}else{
+			cout << "divide stree into two nodes" << endl;
+			cout << "dtreewrapper address: " << &wrapper << endl;
 			for (int i = 0; i < 2; i++){
 				nodes[child(i)].dump(nodes);
 			}
@@ -359,9 +386,9 @@ namespace pbrt {
 			return nodes[child(index)].acquire(pos, nodes);
 		}
 	}*/
-	DTreeWrapper* SNode::acquireDTreeWrapper(Point3f& pos, std::vector<SNode> nodes){
+	DTreeWrapper* SNode::acquireDTreeWrapper(Point3f& pos, std::vector<SNode>& nodes){
 		int index = childIndex(pos);
-		if (isLeaf(index)){
+		if (isleaf){
 			return &wrapper;
 		}else{
 			return nodes[child(index)].acquireDTreeWrapper(pos, nodes);
@@ -388,7 +415,7 @@ namespace pbrt {
 	int SNode::depthAt(Point3f& pos, std::vector<SNode>& nodes) const{
 		int index = childIndex(pos);
 
-		if (isLeaf(index)){
+		if (isleaf){
 			return 1;
 		}else{
 			return 1 + nodes[child(index)].depthAt(pos, nodes);
@@ -439,6 +466,7 @@ namespace pbrt {
 	DNode& DNode::operator=(const DNode& node){
 		for (int i = 0; i < m_sum.size(); i++){
 			setSum(i, node.sum(i));
+			if (m_nodes[i] > 0) printf("wtf\n");
 			m_nodes[i] = node.child(i);
 		}
 		return *this;
@@ -554,6 +582,10 @@ namespace pbrt {
 
 	DTree& DTree::operator=(const DTree& dtree){
 		m_tree = dtree.m_tree;
+		/*m_tree = std::vector<DNode>(dtree.m_tree.size());
+		for (int i = 0; i < dtree.m_tree.size(); i++){
+			m_tree[i] = dtree.m_tree[i];
+		}*/
 		maxDepth = dtree.maxDepth;
 		samples.store(dtree.numOfSample());
 		return *this;
@@ -595,9 +627,8 @@ namespace pbrt {
 	}
 
 	void DTree::dump() const{
-		cout << "dtree size: " << m_tree.size() << endl;
 		for (int i = 0; i < m_tree.size(); i++){
-			cout << "dnode:" << i << endl;
+			cout << "dnode:" << i << " address: " << &m_tree[i] << endl;
 			for (int j = 0; j < 4; j++){
 				cout << "child: " << j 
 					 << " isLeaf: " << m_tree[i].isLeaf(j)
@@ -844,7 +875,7 @@ namespace pbrt {
   		//consider the parallel programming
   		m_sdtree = new STree(scene.WorldBound());//build the initial sdtree
 
-  		for (int iter = 0; iter < numOfIterations; iter++){ //progressive rendering
+  		for (iter = 0; iter < numOfIterations; iter++){ //progressive rendering
   			cout << "the " << iter+1 << "th rendering with budget " <<  iterations[iter] << endl;
   			std::shared_ptr<Sampler> sampler = std::shared_ptr<Sampler>(CreateRandomSampler(iterations[iter]));
 
@@ -857,6 +888,9 @@ namespace pbrt {
 	  		Vector2i sampleExtent = sampleBounds.Diagonal();
 
 	  		Point2i nTile((sampleExtent.x+tileSize-1)/tileSize, (sampleExtent.y+tileSize-1)/tileSize); 
+
+	  		m_sdtree->dump();
+
 	  		ProgressReporter reporter(nTile.x * nTile.y, "Rendering");
 	    	{
 	    		ParallelFor2D([&](Point2i tile) {//solve it parallelly
@@ -948,14 +982,16 @@ namespace pbrt {
 	    		}, nTile);
 	    		//todo: collect the sd tree, refine it
 	    		//print the information of sdtree
-	    		m_sdtree->dump();
-	    		cout << "begin refining" << endl;
-	    		m_sdtree->refine();
-	    		cout << "refining finished\n";
-	    		m_sdtree->dump();
 	    		//
 	    		reporter.Done();
 	    	};
+	    	m_sdtree->dump();
+	    	cout << "begin refining" << endl;
+	    	m_sdtree->refine();
+	    	cout << "refining finished\n";
+	    	m_sdtree->dump();
+
+
 	    	LOG(INFO) << "Rendering finished";
 	    }
 	    // Save final image after rendering
@@ -1019,7 +1055,6 @@ namespace pbrt {
 
 	  		//acquire the dtree from the sdtree
 	  		DTreeWrapper* dwrapper = m_sdtree->acquireDTreeWrapper(isect.p);
-
 	  		//direct lighting computation
 	  		//L += beta * UniformSampleOneLight(isect, scene, arena, sampler);
 
