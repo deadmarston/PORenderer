@@ -67,7 +67,8 @@ public:
   int depthAt(const Vector3f& dir);
   Vector3f sample(Sampler* sampler);
   void record(const Vector3f& dir, Float irradiance, RecordType type);
-  void refine();
+  void refine(DTree* sampling, Float quadThreshold);
+  void reset();
   Float pdf(const Vector3f& dir);
 
   Point2f dirToCanonical(const Vector3f& dir);//convert the dir vector to canonical 2d
@@ -99,6 +100,8 @@ public:
     void rebuild();
 
     Float getNumOfSamples() const { return building.numOfSample(); };
+
+    void refine(Float quadThreshold);
 
     DTree sampling;
     DTree building;
@@ -146,6 +149,7 @@ public:
   void dump();
   void refine();
 
+  void refineDTree();
   void divideSTree();
   void divideSNode(int id);
 private:

@@ -214,7 +214,17 @@ namespace pbrt {
 	}
 
 	void DTreeWrapper::dump(){
+		cout << "================dump building================" << endl;
 		building.dump();
+		cout << "================dump sampling================" << endl;
+		sampling.dump();
+		cout << "=============================================" << endl;
+	}
+
+	void DTreeWrapper::refine(Float quadThreshold){
+		//first, refine the building tree
+		building.refine(&sampling, quadThreshold);
+		//then, copy the whole building tree to sampling tree, and set the dnode in building tree to 0
 	}
 
 	STree::STree(Bounds3f bounds){
@@ -230,6 +240,19 @@ namespace pbrt {
 		//first, divide the stree
 		divideSTree();
 		//then, for all the dtreewrapper in the leaf node, divide the dtree
+		for (int i = 0; i < nodes.size(); i++){
+			if (nodes[i].isleaf){
+				nodes[i].wrapper.refine(0.01);
+			}
+		}
+	}
+
+	void STree::refineDTree(){
+		for (int i = 0; i < nodes.size(); i++){
+			if (nodes[i].isleaf){
+				nodes[i].wrapper.refine(0.01);
+			}
+		}
 	}
 
 	void STree::divideSNode(int id){
@@ -237,7 +260,7 @@ namespace pbrt {
 
 		uint16_t axis = (nodes[id].axis+1)%3;
 
-		for (int j = 0; j < 2; j++){
+		for (int j = 0; j < 2; j++){//todo: set the vertex counts in the snode to half
 			int index = nodes.size() - 2 + j;
 			nodes[id].setChild(j, index);
 			nodes[index].axis = axis;
@@ -622,8 +645,48 @@ namespace pbrt {
 		}
 	}
 
-	void DTree::refine(){
+	void DTree::refine(DTree* sampling, Float quadThreshold){
+		Float total = m_tree[0].build(m_tree);
 
+		//todo: utilize bfs to do the refinement of dtree, also should copy the tree to the sampling and reset the building tree to 0
+		std::stack<int> ids;
+		ids.push(0);
+		while (!ids.empty()){
+			int id = ids.top();
+			ids.pop();
+
+			for (int j = 0; j < 4; j++){
+				if (!m_tree[id].isLeaf(j)){
+					ids.push(m_tree[id].child(j)); 
+					continue;
+				}
+				Float leafSum = m_tree[id].sum(j);
+				Float ratio = leafSum/total;
+				if (ratio > quadThreshold){//we create a new node, todo: consider the depth, if it exceeds the max depth, stop dividing
+					int length = m_tree.size();
+					m_tree.resize(length+1);
+					m_tree[id].setChild(j, length);
+
+					Float newLeafSum = leafSum / 4.0;
+					for (int k = 0; k < 4; k++){
+						m_tree[length].setSum(k, newLeafSum);
+					}
+					ids.push(length);
+				}
+			}
+		}
+
+		sampling->m_tree = m_tree;
+		reset();
+		samples.store(0);
+	}
+
+	void DTree::reset(){
+		for (int i = 0; i < m_tree.size(); i++){
+			for (int j = 0; j < 4; j++){
+				m_tree[i].setSum(j, 0);
+			}
+		}
 	}
 
 	void DTree::dump() const{
@@ -889,8 +952,6 @@ namespace pbrt {
 
 	  		Point2i nTile((sampleExtent.x+tileSize-1)/tileSize, (sampleExtent.y+tileSize-1)/tileSize); 
 
-	  		m_sdtree->dump();
-
 	  		ProgressReporter reporter(nTile.x * nTile.y, "Rendering");
 	    	{
 	    		ParallelFor2D([&](Point2i tile) {//solve it parallelly
@@ -985,10 +1046,7 @@ namespace pbrt {
 	    		//
 	    		reporter.Done();
 	    	};
-	    	m_sdtree->dump();
-	    	cout << "begin refining" << endl;
 	    	m_sdtree->refine();
-	    	cout << "refining finished\n";
 	    	m_sdtree->dump();
 
 
