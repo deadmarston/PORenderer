@@ -738,7 +738,46 @@ namespace pbrt {
 		return Vector3f(sinTheta*cos(phi), sinTheta*sin(phi), cosTheta);
 	}
 	
-	Spectrum EstimateDirect_PG(const Interaction &it, const Point2f &uScattering,
+	Float pdfSDTree(DTreeWrapper* dwrapper, const SurfaceInteraction& isect, Vector3f& wi, BxDFType& bsdfFlags){
+		if (iter == 0) return isect.bsdf->Pdf(isect.wo, wi, bsdfFlags);
+
+		Float bsdfFactor = 0.5f;//todo: set it as a pass-in parameter
+		Float bsdfPdf = isect.bsdf->Pdf(isect.wo, wi, bsdfFlags);
+		Float guidedPdf = dwrapper->pdf(wi);
+		return bsdfFactor*bsdfPdf+(1-bsdfFactor)*guidedPdf;
+	}
+
+	Spectrum sample_sdtree(Sampler &sampler, DTreeWrapper* dwrapper, const SurfaceInteraction& isect, Vector3f& wi,
+							Point2f &uScattering, Float& scatteringPdf, BxDFType bsdfFlags, BxDFType& sampledType){
+		Spectrum f(0.);
+		Float bsdfFactor = 0.5f;
+
+		if (iter == 0 || bsdfFlags & BSDF_SPECULAR){
+			f = isect.bsdf->Sample_f(isect.wo, &wi, uScattering, &scatteringPdf,
+						     bsdfFlags, &sampledType);
+			return f;
+		}
+
+		if (uScattering.x > bsdfFactor){//sample the sdtree
+			wi = dwrapper->sample(&sampler);
+			Float guidedPdf = dwrapper->pdf(wi);
+			f = isect.bsdf->f(isect.wo, wi, bsdfFlags);
+			scatteringPdf = isect.bsdf->Pdf(isect.wo, wi, bsdfFlags);
+			scatteringPdf = bsdfFactor*scatteringPdf+(1-bsdfFactor)*guidedPdf;
+		}else{//sample the bsdf
+			uScattering.x = uScattering.x/bsdfFactor;
+			f = isect.bsdf->Sample_f(isect.wo, &wi, uScattering, &scatteringPdf,
+						     bsdfFlags, &sampledType);
+			if (sampledType & BSDF_SPECULAR){
+				return f;
+			}
+			Float guidedPdf = dwrapper->pdf(wi);
+			scatteringPdf = scatteringPdf*bsdfFactor+guidedPdf*(1-bsdfFactor);
+		}
+		return f;
+	}
+
+	Spectrum EstimateDirect_PG(const Interaction &it, Point2f &uScattering,
 				const Light &light, const Point2f &uLight,
 				const Scene &scene, Sampler &sampler,
 				MemoryArena &arena, DTreeWrapper* dwrapper, bool handleMedia = false, bool specular = false) {
@@ -760,7 +799,8 @@ namespace pbrt {
 			    const SurfaceInteraction &isect = (const SurfaceInteraction &)it;
 			    f = isect.bsdf->f(isect.wo, wi, bsdfFlags) *
 				AbsDot(wi, isect.shading.n);
-			    scatteringPdf = isect.bsdf->Pdf(isect.wo, wi, bsdfFlags);
+			    //scatteringPdf = isect.bsdf->Pdf(isect.wo, wi, bsdfFlags);
+			    scatteringPdf = pdfSDTree(dwrapper, isect, wi, bsdfFlags);
 			    VLOG(2) << "  surf f*dot :" << f << ", scatteringPdf: " << scatteringPdf;
 			} else {//todo: skip phase function for now
 			    // Evaluate phase function for light sampling strategy
@@ -817,8 +857,10 @@ namespace pbrt {
 					//todo: sample the bsdf and sd-tree with a fraction
 					//ex:   direction, bsdf = sampleBSDF&SDTree()
 					//      mixed_pdf, d_pdf, b_pdf = pdf(direction)
-			    f = isect.bsdf->Sample_f(isect.wo, &wi, uScattering, &scatteringPdf,
-						     bsdfFlags, &sampledType);
+			    //f = isect.bsdf->Sample_f(isect.wo, &wi, uScattering, &scatteringPdf,
+				//		     bsdfFlags, &sampledType);
+				f = sample_sdtree(sampler, dwrapper, isect, wi,
+							uScattering, scatteringPdf, bsdfFlags, sampledType);
 			    f *= AbsDot(wi, isect.shading.n);
 			    sampledSpecular = (sampledType & BSDF_SPECULAR) != 0;
 			} else {//todo: skip the medium interactions for now
@@ -834,9 +876,9 @@ namespace pbrt {
 			    // Account for light contributions along sampled direction _wi_
 			    Float weight = 1;
 			    if (!sampledSpecular) {
-				lightPdf = light.Pdf_Li(it, wi);
-				if (lightPdf == 0) return Ld;
-				weight = PowerHeuristic(1, scatteringPdf, 1, lightPdf);
+					lightPdf = light.Pdf_Li(it, wi);
+					if (lightPdf == 0) return Ld;
+					weight = PowerHeuristic(1, scatteringPdf, 1, lightPdf);
 			    }
 
 			    // Find intersection and compute transmittance
@@ -850,8 +892,8 @@ namespace pbrt {
 			    // Add light contribution from material sampling
 			    Spectrum Li(0.f);
 			    if (foundSurfaceInteraction) {
-				if (lightIsect.primitive->GetAreaLight() == &light)
-				    Li = lightIsect.Le(-wi);
+					if (lightIsect.primitive->GetAreaLight() == &light)
+					    Li = lightIsect.Le(-wi);
 			    } else
 					Li = light.Le(ray);
 			    if (!Li.IsBlack()){
@@ -1047,7 +1089,7 @@ namespace pbrt {
 	    		reporter.Done();
 	    	};
 	    	m_sdtree->refine();
-	    	m_sdtree->dump();
+	    	//m_sdtree->dump();
 
 
 	    	LOG(INFO) << "Rendering finished";
@@ -1134,8 +1176,10 @@ namespace pbrt {
 	  		Vector3f wo = -ray.d, wi;
 	  		Float pdf;
 	  		BxDFType flags;
-	  		Spectrum f = isect.bsdf->Sample_f(wo, &wi, sampler.Get2D(), &pdf, BSDF_ALL, &flags);
-
+	  		//Spectrum f = isect.bsdf->Sample_f(wo, &wi, sampler.Get2D(), &pdf, BSDF_ALL, &flags);
+	  		Point2f uScattering = sampler.Get2D();
+	  		Spectrum f = sample_sdtree(sampler, dwrapper, isect, wi,
+							uScattering, pdf, BSDF_ALL, flags);
 	  		if (f.IsBlack() || pdf == 0.f)
 	  			break;
 
