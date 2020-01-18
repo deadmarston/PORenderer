@@ -489,7 +489,6 @@ namespace pbrt {
 	DNode& DNode::operator=(const DNode& node){
 		for (int i = 0; i < m_sum.size(); i++){
 			setSum(i, node.sum(i));
-			if (m_nodes[i] > 0) printf("wtf\n");
 			m_nodes[i] = node.child(i);
 		}
 		return *this;
