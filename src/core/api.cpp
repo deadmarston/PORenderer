@@ -83,6 +83,7 @@
 #include "materials/subsurface.h"
 #include "materials/translucent.h"
 #include "materials/uber.h"
+#include "materials/metal_tex.h"
 #include "samplers/halton.h"
 #include "samplers/maxmin.h"
 #include "samplers/random.h"
@@ -578,6 +579,9 @@ std::shared_ptr<Material> MakeMaterial(const std::string &name,
         material = CreateMixMaterial(mp, mat1, mat2);
     } else if (name == "metal")
         material = CreateMetalMaterial(mp);
+    else if (name == "metal_tex"){
+        material = CreateMetalTexMaterial(mp);
+    }
     else if (name == "substrate")
         material = CreateSubstrateMaterial(mp);
     else if (name == "uber")
