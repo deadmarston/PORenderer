@@ -17,12 +17,13 @@ namespace pbrt {
 class PMIntegrator : public Integrator {
   public:
     // SPPMIntegrator Public Methods
-    PMIntegrator(std::shared_ptr<const Camera> &camera, int nPhotons, int K, int maxDepth)
+    PMIntegrator(std::shared_ptr<const Camera> &camera, int nPhotons, int K, int spp, int maxDepth)
         : camera(camera),
           maxDepth(maxDepth),
           nPhotons(nPhotons),
-          K(K)
-          {}
+          K(K),
+          spp(spp)
+          {};
     void Render(const Scene &scene);
 
   private:
@@ -31,6 +32,7 @@ class PMIntegrator : public Integrator {
     const int maxDepth;
     const int nPhotons;
     const int K; //KNN search
+    const int spp; //spp for aa, motion blur, dof
 };
 
 Integrator *CreatePMIntegrator(const ParamSet &params,

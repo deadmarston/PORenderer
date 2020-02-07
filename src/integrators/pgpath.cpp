@@ -958,7 +958,9 @@ namespace pbrt {
     			} while (iter++ < LEARNING_MAX_INTERATION && remain > 0);
     			numOfIterations = iter;
     			if (numOfIterations == LEARNING_MAX_INTERATION){
-    				iterations[numOfIterations-1] += remain;
+    				if (remain > 0){
+    					iterations[numOfIterations-1] += remain;
+    				}
     			}
     		}	
     	}

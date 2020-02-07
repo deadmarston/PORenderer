@@ -28,7 +28,7 @@ enum BudgetStrategy{ sample = 0, time, naive};
 #define QUAD_MAX_DEPTH 20
 
 #define VERTEX_MAX_DEPTH 32//according to the original paper
-#define LEARNING_MAX_INTERATION 10//max interations for learning and rendering
+#define LEARNING_MAX_INTERATION 12//max interations for learning and rendering
 
 #define PG_DEBUG
 
