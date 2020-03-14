@@ -21,7 +21,8 @@ using namespace std;
 //12.23, add comments for mis with nee, preparing to finish it asap
 namespace pbrt {
 	STAT_COUNTER("Integrator/Camera rays traced", nCameraRays);
-
+	static int zero_count = 0;
+	static int sample_count = 0;
 	//debug
   	static int iter = 0;
 
@@ -206,7 +207,7 @@ namespace pbrt {
 	}
 
 	Float DTreeWrapper::pdf(const Vector3f& dir){
-		return sampling.pdf(dir);
+		return sampling.pdf(dir)/(4*M_PI);
 	}
 
 	void DTreeWrapper::record(const Vector3f& dir, Spectrum irradiance, RecordType type = nearest){
@@ -215,7 +216,7 @@ namespace pbrt {
 
 	void DTreeWrapper::dump(){
 		cout << "================dump building================" << endl;
-		building.dump();
+		//building.dump();
 		cout << "================dump sampling================" << endl;
 		sampling.dump();
 		cout << "=============================================" << endl;
@@ -234,17 +235,15 @@ namespace pbrt {
 		m_bounds.pMax = m_bounds.pMin + Vector3f(m_extent, m_extent, m_extent);//todo: make it a cube, needs to figure out why
 		maxDepth = 0;
 		nodes.emplace_back();
+
+		std::cout << bounds << "||" << m_bounds << "||" << m_extent << "||" << size << std::endl;
 	}
 
 	void STree::refine(){
 		//first, divide the stree
 		divideSTree();
 		//then, for all the dtreewrapper in the leaf node, divide the dtree
-		for (int i = 0; i < nodes.size(); i++){
-			if (nodes[i].isleaf){
-				nodes[i].wrapper.refine(0.01);
-			}
-		}
+		refineDTree();
 	}
 
 	void STree::refineDTree(){
@@ -259,12 +258,13 @@ namespace pbrt {
 		nodes.resize(nodes.size() + 2);//todo: for safety, we need to check the size of nodes
 
 		uint16_t axis = (nodes[id].axis+1)%3;
-
+		int totalSamples = nodes[id].wrapper.getNumOfSamples();
 		for (int j = 0; j < 2; j++){//todo: set the vertex counts in the snode to half
 			int index = nodes.size() - 2 + j;
 			nodes[id].setChild(j, index);
 			nodes[index].axis = axis;
 			nodes[index].wrapper = nodes[id].wrapper;
+			nodes[index].wrapper.setNumOfSamples(totalSamples/2);
 			nodes[index].isleaf = true;
 		}
 		nodes[id].wrapper = {};
@@ -272,23 +272,27 @@ namespace pbrt {
 	}
 
 	void STree::divideSTree(){
+		std::cout << "\nstree size: " << nodes.size() << std::endl;
 		//todo: chech whether the memory usage is over the limit
 		std::stack<int> ids;//record the index of nodes
 		ids.push(0);
-
+		int threshold = 4000*sqrt(pow(2, iter));
+		std::cout << threshold << std::endl;
 		while (!ids.empty()){//we try to visit all nodes in a bfs way
 			int id = ids.top();
 			ids.pop();
 			if (nodes[id].isleaf){//divide the leaf
-				if (nodes[id].shallDivide(1)){//todo: the threshold should be a number controlled by user
+				if (nodes[id].shallDivide(threshold)){//todo: the threshold should be a number controlled by user
 					divideSNode(id);
 				}
-			}else{
+			}
+			if (!nodes[id].isleaf){
 				for (int j = 0; j < 2; j++){
 					ids.push(nodes[id].child(j));
 				}
 			}
 		}
+		std::cout << "after dividing: " << nodes.size() << std::endl;
 	}
 
 	void STree::dump(){
@@ -342,6 +346,13 @@ namespace pbrt {
 		return nodes[0].acquireDTreeWrapper(pos, nodes);
 	}
 
+	DTreeWrapper* STree::_acquireDTreeWrapper(Point3f pos){
+		normalize(pos);
+		std::cout << pos << std::endl;
+		std::cout << "begin: " << 0 << " ";
+		return nodes[0]._acquireDTreeWrapper(pos, nodes);
+	}
+
 	SNode::SNode(){
 		axis = 0;
 		isleaf = true;
@@ -384,6 +395,7 @@ namespace pbrt {
 	}
 
 	bool SNode::shallDivide(Float divideThreshold){
+		//std::cout << "num of samples " << wrapper.getNumOfSamples() << std::endl;
 		return wrapper.getNumOfSamples() > divideThreshold;
 	}
 
@@ -415,6 +427,16 @@ namespace pbrt {
 			return &wrapper;
 		}else{
 			return nodes[child(index)].acquireDTreeWrapper(pos, nodes);
+		}
+	}
+
+	DTreeWrapper* SNode::_acquireDTreeWrapper(Point3f& pos, std::vector<SNode>& nodes){
+		int index = childIndex(pos);
+		std::cout << "next " << index << " ";
+		if (isleaf){
+			return &wrapper;
+		}else{
+			return nodes[child(index)]._acquireDTreeWrapper(pos, nodes);
 		}
 	}
 
@@ -544,17 +566,73 @@ namespace pbrt {
 		}
 	}
 
+	Point2f DNode::visualize(Sampler* sampler, const std::vector<DNode>& nodes) const{
+		Float tmp = sum(0);
+		int index = 0;
+		Point2f origin;
+		for (int i = 1; i < 4; i++){
+			if (sum(i) > tmp){
+				tmp = sum(i);
+				index = i;
+			}
+		}
+		if (index % 2 == 1){
+			origin.x = 0.5;
+		}
+		if (index > 1){
+			origin.y = 0.5;
+		}
+		if (isLeaf(index)){
+			return origin+0.5*sampler->Get2D();
+		}else{
+			return origin+0.5*nodes[child(index)].sample(sampler, nodes);
+		}
+	}
+
 	Point2f DNode::sample(Sampler* sampler, const std::vector<DNode>& nodes) const{
-		Float bottomLeft = sum(0);
+		/*Float bottomLeft = sum(0);
 		Float bottom = bottomLeft + sum(1);
 		Float bottom_upperLeft = bottom + sum(2);
-		Float total = bottom_upperLeft + sum(3);
+		Float total = bottom_upperLeft + sum(3);*/
+
+		Float topLeft = sum(0);
+		Float topRight = sum(1);
+		Float partial = topLeft + sum(2);
+		Float total = partial + topRight + sum(3);
+
+		if (!(total > 0.0f)){
+			return sampler->Get2D();
+		}
+
+		Float boundary = partial / total;
 
 		Float sample = sampler->Get1D();
+
 		int index = 0;
 
-		Point2f origin;
-		if (sample > bottom/total){
+		Point2f origin(0.0f, 0.0f);
+
+		if (sample < boundary){
+			sample /= boundary;
+			boundary = topLeft / partial;
+		}else{
+			partial = total-partial;
+			origin.x = 0.5f;
+			sample = (sample-boundary)/(1-boundary);
+			boundary = topRight/partial;
+			index |= 1 << 0;
+		}
+
+		if (sample < boundary){
+			sample /= boundary;
+		}else{
+			origin.y = 0.5f;
+			sample = (sample-boundary)/(1.0f-boundary);
+			index |= 1 << 1;
+		}
+
+
+		/*if (sample < bottom/total){
 			if (sample > bottomLeft/total){
 				index = 1;
 				origin.x = 0.5;
@@ -567,7 +645,7 @@ namespace pbrt {
 				index = 2;
 			}
 			origin.y = 0.5;
-		}
+		}*/
 		if (isLeaf(index)){
 			return origin+0.5*sampler->Get2D();
 		}else{
@@ -586,11 +664,17 @@ namespace pbrt {
 		assert(can.x >= 0 && can.y >= 0 && can.x <= 1 && can.y <= 1);
 		int index = 0;
 		for (int i = 0;  i < 2; i++){
-			if (can[i] > 0.5){
+			/*if (can[i] > 0.5){
 				can[i] = (can[i]-0.5)*2;
 				index |= (1 << i);
 			}else{
 				can[i] *= 2;
+			}*/
+			if (can[i] < 0.5f){
+				can[i] *= 2;
+			}else{
+				can[i] = (can[i]-0.5f)*2;
+				index |= 1 << i;
 			}
 		}
 		return index;
@@ -604,10 +688,10 @@ namespace pbrt {
 
 	DTree& DTree::operator=(const DTree& dtree){
 		m_tree = dtree.m_tree;
-		/*m_tree = std::vector<DNode>(dtree.m_tree.size());
+		m_tree = std::vector<DNode>(dtree.m_tree.size());
 		for (int i = 0; i < dtree.m_tree.size(); i++){
 			m_tree[i] = dtree.m_tree[i];
-		}*/
+		}
 		maxDepth = dtree.maxDepth;
 		samples.store(dtree.numOfSample());
 		return *this;
@@ -631,7 +715,11 @@ namespace pbrt {
 	}
 
 	Vector3f DTree::sample(Sampler* sampler){
-		Point2f can = m_tree[0].sample(sampler, m_tree);
+		Point2f can;
+		//if (iter > 2){can = m_tree[0].visualize(sampler, m_tree);}
+		//else {can = m_tree[0].sample(sampler, m_tree);}
+		can = m_tree[0].sample(sampler, m_tree);
+		//std::cout << "can: " << can << std::endl;
 		return canonicalToDir(can);
 	}
 
@@ -646,7 +734,7 @@ namespace pbrt {
 
 	void DTree::refine(DTree* sampling, Float quadThreshold){
 		Float total = m_tree[0].build(m_tree);
-
+		sampling->m_tree = m_tree;
 		//todo: utilize bfs to do the refinement of dtree, also should copy the tree to the sampling and reset the building tree to 0
 		std::stack<int> ids;
 		ids.push(0);
@@ -675,7 +763,6 @@ namespace pbrt {
 			}
 		}
 
-		sampling->m_tree = m_tree;
 		reset();
 		samples.store(0);
 	}
@@ -689,6 +776,8 @@ namespace pbrt {
 	}
 
 	void DTree::dump() const{
+		std::cout << samples.load(std::memory_order_relaxed) << " ";
+		
 		for (int i = 0; i < m_tree.size(); i++){
 			cout << "dnode:" << i << " address: " << &m_tree[i] << endl;
 			for (int j = 0; j < 4; j++){
@@ -715,13 +804,12 @@ namespace pbrt {
 		can.y = phi/(2*M_PI);
 		return can;*/
 		Point2f can;
-		float cosTheta = max(min(dir.y, 1.f), -1.f);
-		float phi = atan2(dir.z, dir.x);
+		float cosTheta = max(min(dir.z, 1.f), -1.f);
+		float phi = atan2(dir.y, dir.x);
 		while(phi < 0) phi += 2*M_PI;
 
 		can.x = (cosTheta+1)/2.f;
 		can.y = phi/(2*M_PI);
-
 		return can;
 	}
 
@@ -731,9 +819,11 @@ namespace pbrt {
 		float sinTheta = sqrt(1 - cosTheta*cosTheta);
 		float phi = can.y*2*M_PI;
 		return Vector3f(sinTheta*cos(phi), sinTheta*sin(phi), cosTheta);*/
-		float cosTheta = can.x*2-1;
-		float sinTheta = sqrt(1-cosTheta*cosTheta);
-		float phi = can.y*2*M_PI;
+		Float cosTheta = can.x*2-1;
+		Float sinTheta = sqrt(1-cosTheta*cosTheta);
+		Float phi = can.y*2*M_PI;
+		//Float sinPhi, cosPhi;
+		//math::sincos(phi, &sinPhi, &cosPhi);
 		return Vector3f(sinTheta*cos(phi), sinTheta*sin(phi), cosTheta);
 	}
 	
@@ -750,24 +840,42 @@ namespace pbrt {
 							Point2f &uScattering, Float& scatteringPdf, BxDFType bsdfFlags, BxDFType& sampledType){
 		Spectrum f(0.);
 		Float bsdfFactor = 0.5f;
+		if (iter == 0) {
 
-		if (iter == 0 || bsdfFlags & BSDF_SPECULAR){
 			f = isect.bsdf->Sample_f(isect.wo, &wi, uScattering, &scatteringPdf,
 						     bsdfFlags, &sampledType);
 			return f;
 		}
 
+		f = isect.bsdf->Sample_f(isect.wo, &wi, uScattering, &scatteringPdf,
+						     bsdfFlags, &sampledType);
+		if (sampledType & BSDF_SPECULAR){
+			//std::cout << "early end" << std::endl;
+			return f;
+		}
+		//std::cout << "reference: " << isect.wo << " normal: " << isect.shading.n << std::endl;
 		if (uScattering.x > bsdfFactor){//sample the sdtree
+			bool brek = false;
 			wi = dwrapper->sample(&sampler);
+			//std::cout << wi << " " << Dot(wi, isect.shading.n) << " " << Dot(wi, isect.wo) << std::endl;
 			Float guidedPdf = dwrapper->pdf(wi);
 			f = isect.bsdf->f(isect.wo, wi, bsdfFlags);
 			scatteringPdf = isect.bsdf->Pdf(isect.wo, wi, bsdfFlags);
 			scatteringPdf = bsdfFactor*scatteringPdf+(1-bsdfFactor)*guidedPdf;
 		}else{//sample the bsdf
+			//std::cout << "sample the bsdf" << " ";
 			uScattering.x = uScattering.x/bsdfFactor;
 			f = isect.bsdf->Sample_f(isect.wo, &wi, uScattering, &scatteringPdf,
 						     bsdfFlags, &sampledType);
+			//std::cout << wi << " " << Dot(wi, isect.shading.n) << " " << Dot(wi, isect.wo) << std::endl;
+			if (f.IsBlack()){
+				//std::cout << "finished" << std::endl;
+				scatteringPdf = 0;
+				return Spectrum(0.);
+			}
 			if (sampledType & BSDF_SPECULAR){
+				//std::cout << "specular " << wi << std::endl;
+				scatteringPdf *= bsdfFactor;
 				return f;
 			}
 			Float guidedPdf = dwrapper->pdf(wi);
@@ -775,6 +883,61 @@ namespace pbrt {
 		}
 		return f;
 	}
+
+	Spectrum _EstimateDirect_PG(const Interaction &it,
+                        const Scene &scene, Sampler &sampler,
+                        MemoryArena &arena, DTreeWrapper* dwrapper, bool handleMedia = false, bool specular = false) {
+	    Spectrum Ld(0.0f);
+	    BxDFType bsdfFlags =
+	        specular ? BSDF_ALL : BxDFType(BSDF_ALL & ~BSDF_SPECULAR);
+	     Vector3f wi;
+	     Float scatteringPdf = 0;
+
+	    Spectrum f;
+	    bool sampledSpecular = false;
+	    if (it.IsSurfaceInteraction()) {
+	        // Sample scattered direction for surface interactions
+	        BxDFType sampledType;
+	        const SurfaceInteraction &isect = (const SurfaceInteraction &)it;
+	        Point2f uScattering = sampler.Get2D();
+	        sample_count++;
+	        f = sample_sdtree(sampler, dwrapper, isect, wi,
+							uScattering, scatteringPdf, bsdfFlags, sampledType);
+			f *= AbsDot(wi, isect.shading.n);
+	        sampledSpecular = (sampledType & BSDF_SPECULAR) != 0;
+	    }
+	    VLOG(2) << "  BSDF / phase sampling f: " << f << ", scatteringPdf: " <<
+	        scatteringPdf;
+	    if (f.IsBlack() || scatteringPdf == 0) zero_count++;
+	    if (!f.IsBlack() && scatteringPdf > 0) {
+	        // Find intersection and compute transmittance
+	        SurfaceInteraction lightIsect;
+	        Ray ray = it.SpawnRay(wi);
+	        Spectrum Tr(1.f);
+	        bool foundSurfaceInteraction =
+	            handleMedia ? scene.IntersectTr(ray, sampler, &lightIsect, &Tr)
+	                        : scene.Intersect(ray, &lightIsect);
+
+	        // Add light contribution from material sampling
+	        Spectrum Li(0.f);
+	        if (foundSurfaceInteraction) {
+	            Li = lightIsect.Le(-wi);
+	        } else{
+	            for (const auto &light : scene.infiniteLights)
+	                Li += light->Le(ray);
+	        }
+	        if (!Li.IsBlack()) { Ld += f * Li * Tr / scatteringPdf; dwrapper->record(wi, Li * Tr / scatteringPdf); }
+	    }
+	    return Ld;
+	}
+
+
+	Spectrum _UniformSampleOneLight_PG(const Interaction &it, const Scene &scene,
+					       MemoryArena &arena, Sampler &sampler,
+					       bool handleMedia, DTreeWrapper* dwrapper, const Distribution1D *lightDistrib = nullptr) {
+	    return _EstimateDirect_PG(it, scene, sampler, arena, dwrapper, handleMedia);
+	}
+
 
 	Spectrum EstimateDirect_PG(const Interaction &it, Point2f &uScattering,
 				const Light &light, const Point2f &uLight,
@@ -790,7 +953,7 @@ namespace pbrt {
 	    Spectrum Li = light.Sample_Li(it, uLight, &wi, &lightPdf, &visibility);
 	    VLOG(2) << "EstimateDirect uLight:" << uLight << " -> Li: " << Li << ", wi: "
 		    << wi << ", pdf: " << lightPdf;
-	    if (lightPdf > 0 && !Li.IsBlack()) {
+	    /*if (lightPdf > 0 && !Li.IsBlack()) {
 			// Compute BSDF or phase function's value for light sample
 			Spectrum f;
 			if (it.IsSurfaceInteraction()) {
@@ -827,8 +990,9 @@ namespace pbrt {
 			    if (!Li.IsBlack()) {
 					if (IsDeltaLight(light.flags)){
 					    Ld += f * Li / lightPdf;
-					    RecordVertex v(dwrapper, f * Li/ lightPdf, wi);
-					    v.commit();
+					    dwrapper->record(wi, Li);
+					    //RecordVertex v(dwrapper, f * Li/ lightPdf, wi);
+					    //v.commit();
 					}
 					else{
 						//todo: consider the sd-tree, and utilize mixed pdf to compute the power heuristic
@@ -838,12 +1002,13 @@ namespace pbrt {
 					    Float weight =
 						PowerHeuristic(1, lightPdf, 1, scatteringPdf);
 					    Ld += f * Li * weight / lightPdf;
-					    RecordVertex v(dwrapper, f * Li * weight / lightPdf, wi);
-					    v.commit();
+					    dwrapper->record(wi, Li * weight / lightPdf);
+					    //RecordVertex v(dwrapper, f * Li * weight / lightPdf, wi);
+					    //v.commit();
 					}
 				}
 		    }
-		}
+		}*/
 
 	    // Sample BSDF with multiple importance sampling
 	    if (!IsDeltaLight(light.flags)) {
@@ -861,6 +1026,7 @@ namespace pbrt {
 				f = sample_sdtree(sampler, dwrapper, isect, wi,
 							uScattering, scatteringPdf, bsdfFlags, sampledType);
 			    f *= AbsDot(wi, isect.shading.n);
+			    //std::cout << AbsDot(wi, isect.shading.n) << std::endl;
 			    sampledSpecular = (sampledType & BSDF_SPECULAR) != 0;
 			} else {//todo: skip the medium interactions for now
 			    // Sample scattered direction for medium interactions
@@ -891,13 +1057,14 @@ namespace pbrt {
 			    // Add light contribution from material sampling
 			    Spectrum Li(0.f);
 			    if (foundSurfaceInteraction) {
-					if (lightIsect.primitive->GetAreaLight() == &light)
-					    Li = lightIsect.Le(-wi);
-			    } else
-					Li = light.Le(ray);
+					Li = lightIsect.Le(-wi);
+			    } else{
+					for (const auto &light : scene.infiniteLights)
+                    	Li += light->Le(ray);
+			    }
 			    if (!Li.IsBlack()){
 			    	Ld += f * Li * Tr * weight / scatteringPdf;
-			    	dwrapper->record(wi, Li * Tr * weight / scatteringPdf);
+			    	dwrapper->record(wi, Li * Tr / scatteringPdf);
 			    }
 			}
 	    }
@@ -951,7 +1118,26 @@ namespace pbrt {
     			int budget = 1;
     			int iter = 0;
     			int remain = spp;
-    			do{
+    			for (int i = 0; i < LEARNING_MAX_INTERATION; i++){
+    				if (remain - budget >= 0){
+    					iterations[i] = budget;
+    					remain -= budget;
+    				}else{
+    					iterations[i-1] += remain;
+    					remain = 0;
+    					break;
+    				}
+    				budget *= 2;
+    				iter++;
+    			}
+    			if (remain - budget >= 0){
+    				iterations[iter] = remain;
+    				numOfIterations = iter+1;
+    			}else{
+    				iterations[iter-1] += remain;
+    				numOfIterations = iter;
+    			}
+    			/*do{
     				iterations[iter] = budget;
     				remain -= budget;
     				budget *= 2;
@@ -961,7 +1147,7 @@ namespace pbrt {
     				if (remain > 0){
     					iterations[numOfIterations-1] += remain;
     				}
-    			}
+    			}*/
     		}	
     	}
     }
@@ -1089,12 +1275,17 @@ namespace pbrt {
 	    		//
 	    		reporter.Done();
 	    	};
+
+	    	std::cout << std::endl << "zero: " << zero_count << " " << zero_count / Float(sample_count) << std::endl;
+	    	zero_count = 0;
+	    	sample_count = 0;
+
+	    	if (iter == numOfIterations - 1) break;
 	    	m_sdtree->refine();
 	    	//m_sdtree->dump();
-
-
-	    	LOG(INFO) << "Rendering finished";
+	    	LOG(INFO) << "Learning finished\n";
 	    }
+	    LOG(INFO) << "Rendering finished\n";
 	    // Save final image after rendering
 	    camera->film->WriteImage();
   	}
@@ -1132,11 +1323,16 @@ namespace pbrt {
 	  		if (bounces == 0 || specularBounce){//todo: need to figure out
 	  			//add emitted light at path vertex
 	  			if (foundIntersection){
-	  				L += beta * isect.Le(-ray.d);
+	  				Spectrum Le = beta * isect.Le(-ray.d);
+	  				L += Le;
+	  				recordRadianceForVertex(Le);
 	  			}else{
+	  				Spectrum Le(0.f);
 	  				for (const auto& light : scene.infiniteLights){
-	  					L += beta * light->Le(ray);
+	  					Le += beta * light->Le(ray);
 	  				}
+	  				L += Le;
+	  				recordRadianceForVertex(Le);
 	  			}
 	  		}
 
@@ -1156,6 +1352,7 @@ namespace pbrt {
 
 	  		//acquire the dtree from the sdtree
 	  		DTreeWrapper* dwrapper = m_sdtree->acquireDTreeWrapper(isect.p);
+
 	  		//direct lighting computation
 	  		//L += beta * UniformSampleOneLight(isect, scene, arena, sampler);
 
@@ -1166,7 +1363,8 @@ namespace pbrt {
 	  		if (isect.bsdf->NumComponents(BxDFType(BSDF_ALL & ~BSDF_SPECULAR)) > 0){
 	  			//todo: sample the sdtree and compute the contribution, after sampling the direct light, we record
 	  			//it back to the sdtree
-	  			Spectrum Ld = beta * UniformSampleOneLight_PG(isect, scene, arena, sampler, false, dwrapper, distrib);
+	  			Spectrum Ld = beta * _UniformSampleOneLight_PG(isect, scene, arena, sampler, false, dwrapper, distrib);
+	  			CHECK_GE(Ld.y(), 0.f);
 	  			L += Ld;
 	  			recordRadianceForVertex(Ld);
 	  		}
@@ -1179,13 +1377,16 @@ namespace pbrt {
 	  		BxDFType flags;
 	  		//Spectrum f = isect.bsdf->Sample_f(wo, &wi, sampler.Get2D(), &pdf, BSDF_ALL, &flags);
 	  		Point2f uScattering = sampler.Get2D();
+	  		sample_count++;
 	  		Spectrum f = sample_sdtree(sampler, dwrapper, isect, wi,
 							uScattering, pdf, BSDF_ALL, flags);
-	  		if (f.IsBlack() || pdf == 0.f)
+	  		if (f.IsBlack() || pdf == 0.f){
+	  			zero_count++;
 	  			break;
-
+	  		}
 	  		//spawn the next ray and compute the beta value
-	  		beta *= f * AbsDot(wi, isect.shading.n) / pdf;
+	  		beta *= (f * AbsDot(wi, isect.shading.n) / pdf);
+	  		//if (iter > 0) std::cout << "beta" << beta << std::endl; 
 	  		specularBounce = (flags & BSDF_SPECULAR) != 0;
 	  		
 	  		//account for eta through specular reflection and refraction
@@ -1198,7 +1399,7 @@ namespace pbrt {
 	  		ray = isect.SpawnRay(wi);
 
 	  		//generate a new vertex by this wi and dwrapper
-	  		vertex[nVertex++] = RecordVertex(dwrapper, wi);
+	  		vertex[nVertex++] = RecordVertex(dwrapper, wi, beta, pdf);
 
 	  		//todo: deal with the case of bssrdf
 
@@ -1210,6 +1411,7 @@ namespace pbrt {
 	  			if (sampler.Get1D() < q)
 	  				break;
 	  			beta /= 1-q;//update the weight with the russian roulette failure weight 1-q
+	  			DCHECK(!std::isinf(beta.y()));
 	  		}
 
   		}

@@ -105,6 +105,60 @@ Spectrum UniformSampleOneLight(const Interaction &it, const Scene &scene,
                           scene, sampler, arena, handleMedia) / lightPdf;
 }
 
+Spectrum _EstimateDirect(const Interaction &it, const Point2f &uScattering,
+                        const Scene &scene, Sampler &sampler,
+                        MemoryArena &arena, bool handleMedia, bool specular) {
+    Spectrum Ld(0.0f);
+    BxDFType bsdfFlags =
+        specular ? BSDF_ALL : BxDFType(BSDF_ALL & ~BSDF_SPECULAR);
+     Vector3f wi;
+     Float scatteringPdf = 0;
+
+    Spectrum f;
+    bool sampledSpecular = false;
+    if (it.IsSurfaceInteraction()) {
+        // Sample scattered direction for surface interactions
+        BxDFType sampledType;
+        const SurfaceInteraction &isect = (const SurfaceInteraction &)it;
+        f = isect.bsdf->Sample_f(isect.wo, &wi, uScattering, &scatteringPdf,
+                                   bsdfFlags, &sampledType);
+        f *= AbsDot(wi, isect.shading.n);
+        sampledSpecular = (sampledType & BSDF_SPECULAR) != 0;
+    }
+    VLOG(2) << "  BSDF / phase sampling f: " << f << ", scatteringPdf: " <<
+        scatteringPdf;
+    if (!f.IsBlack() && scatteringPdf > 0) {
+        // Find intersection and compute transmittance
+        SurfaceInteraction lightIsect;
+        Ray ray = it.SpawnRay(wi);
+        Spectrum Tr(1.f);
+        bool foundSurfaceInteraction =
+            handleMedia ? scene.IntersectTr(ray, sampler, &lightIsect, &Tr)
+                        : scene.Intersect(ray, &lightIsect);
+
+        // Add light contribution from material sampling
+        Spectrum Li(0.f);
+        if (foundSurfaceInteraction) {
+            Li = lightIsect.Le(-wi);
+        } else{
+            for (const auto &light : scene.infiniteLights)
+                Li += light->Le(ray);
+        }
+        if (!Li.IsBlack()) Ld += f * Li / scatteringPdf;
+    }
+    return Ld;
+}
+
+
+Spectrum _UniformSampleOneLight(const Interaction &it, const Scene &scene,
+                               MemoryArena &arena, Sampler &sampler,
+                               bool handleMedia, const Distribution1D *lightDistrib) {
+    Point2f uScattering = sampler.Get2D();
+    return _EstimateDirect(it, uScattering,
+                          scene, sampler, arena, handleMedia);
+}
+
+
 Spectrum EstimateDirect(const Interaction &it, const Point2f &uScattering,
                         const Light &light, const Point2f &uLight,
                         const Scene &scene, Sampler &sampler,

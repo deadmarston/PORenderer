@@ -28,7 +28,7 @@ enum BudgetStrategy{ sample = 0, time, naive};
 #define QUAD_MAX_DEPTH 20
 
 #define VERTEX_MAX_DEPTH 32//according to the original paper
-#define LEARNING_MAX_INTERATION 12//max interations for learning and rendering
+#define LEARNING_MAX_INTERATION 9//max interations for learning and rendering
 
 #define PG_DEBUG
 
@@ -52,7 +52,7 @@ public:
   int depthAt(Point2f& can, const std::vector<DNode>& nodes) const;
   Point2f sample(Sampler* sampler, const std::vector<DNode>& nodes) const;
   Float build(std::vector<DNode>& nodes);
-
+  Point2f visualize(Sampler* sampler, const std::vector<DNode>& nodes) const;
   DNode& operator=(const DNode& node);
 
 private:
@@ -79,7 +79,7 @@ public:
 
   void dump() const;
   Float numOfSample() const { return samples.load(std::memory_order_relaxed); };//todo
-
+  void setNumOfSample(int n) { samples.store(n, std::memory_order_relaxed); };
   DTree& operator=(const DTree& tree);
 
   std::vector<DNode> m_tree;//maintain a tree to store the index of node, the index of root is 0
@@ -100,7 +100,7 @@ public:
     void rebuild();
 
     Float getNumOfSamples() const { return building.numOfSample(); };
-
+    void setNumOfSamples(int n) { return building.setNumOfSample(n); }
     void refine(Float quadThreshold);
 
     DTree sampling;
@@ -117,6 +117,7 @@ public:
 
   //const SNode* acquire(Point3f& pos, std::vector<SNode> nodes) const;
   DTreeWrapper* acquireDTreeWrapper(Point3f& pos, std::vector<SNode>& nodes);
+  DTreeWrapper* _acquireDTreeWrapper(Point3f& pos, std::vector<SNode>& nodes);
   bool isLeaf(int index) const { return child(index) == LEAFINDEX; };
   uint32_t child(int index) const;
   int childIndex(Point3f& pos) const; 
@@ -146,6 +147,7 @@ public:
     return m_bounds;
   }
   DTreeWrapper* acquireDTreeWrapper(Point3f pos);
+  DTreeWrapper* _acquireDTreeWrapper(Point3f pos);
   void dump();
   void refine();
 
@@ -163,15 +165,33 @@ private:
 
 struct RecordVertex{
   Spectrum radiance;
+  Spectrum beta;
   DTreeWrapper* dwrapper;
   Vector3f wi;
   RecordType type;
+  Float woPdf;
 
   RecordVertex(DTreeWrapper* _wrapper, Vector3f _wi) 
               : dwrapper(_wrapper), wi(_wi){
                 radiance = Spectrum(0.f);
+                beta = Spectrum(1.0f);
+                type = nearest;
+                woPdf = 1.0f;
+              }
+  RecordVertex(DTreeWrapper* _wrapper, Vector3f _wi, Spectrum _beta, Float _woPdf) 
+              : dwrapper(_wrapper), wi(_wi), beta(_beta), woPdf(_woPdf){
+                radiance = Spectrum(0.f);
                 type = nearest;
               }
+
+  RecordVertex(DTreeWrapper* _wrapper, Spectrum _radiance, Spectrum _beta, Vector3f  _wi)
+                : dwrapper(_wrapper),
+                  radiance(_radiance),
+                  beta(_beta),
+                  wi(_wi)
+                {
+                  type = nearest;
+                }
 
   RecordVertex(DTreeWrapper* _wrapper, Spectrum _radiance, Vector3f  _wi)
                 : dwrapper(_wrapper),
@@ -179,11 +199,13 @@ struct RecordVertex{
                   wi(_wi)
                 {
                   type = nearest;
+                  beta = Spectrum(1.0f);
                 }
 
-  RecordVertex(DTreeWrapper* _wrapper, Spectrum _radiance, Vector3f  _wi, RecordType _type)
+  RecordVertex(DTreeWrapper* _wrapper, Spectrum _radiance, Spectrum _beta, Vector3f  _wi, RecordType _type)
                 : dwrapper(_wrapper),
                   radiance(_radiance),
+                  beta(_beta),
                   wi(_wi),
                   type(_type)
                 {
@@ -192,6 +214,7 @@ struct RecordVertex{
   RecordVertex(){
     dwrapper = nullptr;
     radiance = Spectrum(0.f);
+    beta = Spectrum(1.0f);
     type = nearest;
     wi = Vector3f(0.f, 0.f, 0.f);
   }
@@ -199,7 +222,12 @@ struct RecordVertex{
   void commit(){
     //todo: submit the irrad
     if (type == nearest){
-      dwrapper->record(wi, radiance.Average(), type);
+      Spectrum localRadiance(0.0f);
+      if (beta[0]*woPdf > EPSILON) localRadiance[0] = radiance[0]/beta[0];
+      if (beta[1]*woPdf > EPSILON) localRadiance[1] = radiance[1]/beta[1];
+      if (beta[2]*woPdf > EPSILON) localRadiance[2] = radiance[2]/beta[2];
+      if (woPdf != 0) localRadiance /= woPdf;
+      dwrapper->record(wi, localRadiance, type);
     }
   }
 
@@ -241,7 +269,7 @@ class PathGuidingIntegrator : public Integrator{
   		std::unique_ptr<LightDistribution>lightDistribution;
 
       int spp; 
-      std::array<int, LEARNING_MAX_INTERATION> iterations;
+      std::array<int, LEARNING_MAX_INTERATION+1> iterations;
       int numOfIterations;
 
   		//private data for practical path guiding
