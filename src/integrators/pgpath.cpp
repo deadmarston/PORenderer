@@ -259,14 +259,17 @@ namespace pbrt {
 
 		uint16_t axis = (nodes[id].axis+1)%3;
 		int totalSamples = nodes[id].wrapper.getNumOfSamples();
+		uint16_t depth = nodes[id].depth+1;
 		for (int j = 0; j < 2; j++){//todo: set the vertex counts in the snode to half
 			int index = nodes.size() - 2 + j;
 			nodes[id].setChild(j, index);
+			nodes[index].depth = depth;
 			nodes[index].axis = axis;
 			nodes[index].wrapper = nodes[id].wrapper;
 			nodes[index].wrapper.setNumOfSamples(totalSamples/2);
 			nodes[index].isleaf = true;
 		}
+		maxDepth = max(maxDepth, depth);
 		nodes[id].wrapper = {};
 		nodes[id].isleaf = false;
 	}
@@ -356,6 +359,7 @@ namespace pbrt {
 	SNode::SNode(){
 		axis = 0;
 		isleaf = true;
+		depth = 1;
 		for (size_t i = 0; i < m_nodes.size(); i++){
 			m_nodes[i] = LEAFINDEX;
 		}
@@ -363,6 +367,7 @@ namespace pbrt {
 
 	SNode::SNode(uint16_t _axis) : axis(_axis){
 		isleaf = true;
+		depth = 1;
 		for (size_t i = 0; i < m_nodes.size(); i++){
 			m_nodes[i] = LEAFINDEX;
 		}
@@ -372,6 +377,7 @@ namespace pbrt {
 		axis = node.axis;
 		wrapper = node.wrapper;
 		isleaf = node.isleaf;
+		depth = node.depth;
 		//current = node.current;
 		//previous = node.previous;
 		for (size_t i = 0; i < m_nodes.size(); i++){
@@ -383,6 +389,7 @@ namespace pbrt {
 		axis = node.axis;
 		wrapper = node.wrapper;
 		isleaf = node.isleaf;
+		depth = node.depth;
 		//current = node.current;
 		//previous = node.previous;
 		for (size_t i = 0; i < m_nodes.size(); i++){
@@ -1097,7 +1104,7 @@ namespace pbrt {
 	PathGuidingIntegrator::PathGuidingIntegrator(int maxDepth, std::shared_ptr<const Camera> camera, 
   							  const int spp,
   							  const Bounds2i &pixelBounds, Float rrThreshold,
-  							  const std::string &lightSampleStrategy,
+  							  const std::string &lightSampleStrategy, const NEE nee,
   							  const Float quadThreshold, const Float c)
 		: camera(camera),
 		  pixelBounds(pixelBounds),
@@ -1105,6 +1112,7 @@ namespace pbrt {
 		  maxDepth(maxDepth),
 		  rrThreshold(rrThreshold),
 		  lightSampleStrategy(lightSampleStrategy),
+		  m_nee(nee),
 		  quadThreshold(quadThreshold),
 		  c(c)
 		   {
@@ -1282,6 +1290,7 @@ namespace pbrt {
 
 	    	if (iter == numOfIterations - 1) break;
 	    	m_sdtree->refine();
+	    	std::cout << m_sdtree->depth() << std::endl;
 	    	//m_sdtree->dump();
 	    	LOG(INFO) << "Learning finished\n";
 	    }
@@ -1445,9 +1454,16 @@ namespace pbrt {
 		}
 		Float rrThreshold = params.FindOneFloat("rrthreshold", 1.);
 		std::string lightStrategy = params.FindOneString("lightsamplestrategy", "spatial");
+		std::string _nee = params.FindOneString("NEE", "never");
+		NEE nee;
+		if (_nee == "always"){
+			nee = NEE::ALWAYS;
+		}else{
+			nee = NEE::NEVER;
+		}
 		std::cout << "pgpath integrator created\n";
 		return new PathGuidingIntegrator(maxDepth, camera, spp, pixelBounds,
-										 rrThreshold, lightStrategy);
+										 rrThreshold, lightStrategy, nee);
 	}
 
 }

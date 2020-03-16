@@ -134,6 +134,7 @@ public:
   DTreeWrapper wrapper;
   uint16_t axis;//change the axis alternatively
   bool isleaf;
+  uint16_t depth;
 private:
   std::array<uint32_t, 2> m_nodes;
 };
@@ -154,11 +155,13 @@ public:
   void refineDTree();
   void divideSTree();
   void divideSNode(int id);
+
+  uint16_t depth() const { return maxDepth; }
 private:
   void normalize(Point3f& pos) const;
 
   std::vector<SNode> nodes;
-  int maxDepth;
+  uint16_t maxDepth;
   Bounds3f m_bounds;
   Float m_extent;
 };
@@ -236,13 +239,15 @@ struct RecordVertex{
   }
 };
 
+enum NEE {NEVER=0, ALWAYS};
+
 // Path Guiding Path Integrator Declarations
 class PathGuidingIntegrator : public Integrator{
   public:
   		PathGuidingIntegrator(int maxDepth, std::shared_ptr<const Camera> camera, 
                   const int spp, 
   							  const Bounds2i &pixelBounds, Float rrThreshold = 1,
-  							  const std::string &lightSampleStrategy = "spatial",
+  							  const std::string &lightSampleStrategy = "spatial", const NEE nee = NEE::NEVER,
   							  const Float quadThreshold = 0.01f, const Float c = 12000);
   		void Preprocess(const Scene &scene, Sampler &sampler);
   		void Render(const Scene &scene);
@@ -264,7 +269,7 @@ class PathGuidingIntegrator : public Integrator{
   		//power:   sample the light sources according to their power
   		//spatial: compute the light contributions in regions of the scene and sample from a related distribution
   		const std::string lightSampleStrategy;
-
+      const NEE m_nee;
   		//light distribution created based on the light sample strategy
   		std::unique_ptr<LightDistribution>lightDistribution;
 
